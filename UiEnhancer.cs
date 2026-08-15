@@ -11,7 +11,7 @@ namespace ItemSpawnerEnhancement
     /// <summary>
     /// UI 增强：
     /// 1. 搜索框移到模组菜单顶部居中并扩大；
-    /// 2. 搜索框下方新增横向分类按钮条（全部/工具/食物/神秘/装备/消耗品/场景），按钮加大并加粗描边；
+    /// 2. 搜索框下方新增横向分类按钮条（全部/工具/食物/神秘/装备/消耗品/场景），白色矩形+黑色描边、黑字，悬停变灰、选中变黄；
     /// 3. 挂载 ItemListView（本地化显示名 + 中文/拼音搜索 + 多标签分类过滤与排序）。
     /// </summary>
     public static class UiEnhancer
@@ -23,9 +23,9 @@ namespace ItemSpawnerEnhancement
         private static readonly List<TextMeshProUGUI> _categoryButtonLabels = new List<TextMeshProUGUI>();
         private static ItemListView _view;
 
-        private static readonly Color ColorIdle = new Color(1f, 1f, 1f, 0f);      // 透明背景，保持面板原本视觉
-        private static readonly Color ColorHover = new Color(1f, 1f, 1f, 0.16f);   // 悬停轻微提亮
-        private static readonly Color ColorSelected = new Color(0.92f, 0.70f, 0.25f, 0.90f); // 选中金色
+        private static readonly Color ColorIdle = new Color(1f, 1f, 1f, 1f);        // 默认白色填充
+        private static readonly Color ColorHover = new Color(0.82f, 0.82f, 0.82f, 1f); // 悬停灰色
+        private static readonly Color ColorSelected = new Color(0.92f, 0.72f, 0.20f, 1f); // 选中黄色
 
         public static void Setup(ItemSpawner.ItemSpawnerWindow window)
         {
@@ -49,7 +49,7 @@ namespace ItemSpawnerEnhancement
             }
             TMP_InputField searchInput = searchGo.GetComponent<TMP_InputField>();
 
-            // 1. 搜索框：顶部居中、加宽加高
+            // 1. 搜索框：顶部居中、加宽加高（高 50，占 12~62px）
             RectTransform panelRt = scrollViewGo.parent as RectTransform; // Panel
             RectTransform sbRt = searchGo as RectTransform;
             sbRt.anchorMin = new Vector2(0.5f, 1f);
@@ -57,16 +57,16 @@ namespace ItemSpawnerEnhancement
             sbRt.pivot = new Vector2(0.5f, 1f);
             sbRt.anchoredPosition = new Vector2(0f, -12f);
             float panelWidth = (panelRt != null) ? panelRt.rect.width : 900f;
-            sbRt.sizeDelta = new Vector2(panelWidth * 0.86f, 76f);
+            sbRt.sizeDelta = new Vector2(panelWidth * 0.86f, 50f);
 
             // 2. Scroll View 下移并收窄高度，为顶部搜索框 + 分类条让位。
-            //    搜索框高 76 位于 12~88px，分类条高 50 位于 94~144px，
-            //    Scroll View 顶部缩进 = 59 + 174/2 = 146px（分类条底 144 + 2px 间距）。
+            //    搜索框高 50 位于 12~62px，分类条高 50 位于 68~118px，
+            //    Scroll View 顶部缩进 = 46 + 148/2 = 120px（分类条底 118 + 2px 间距）。
             RectTransform svRt = scrollViewGo as RectTransform;
-            svRt.anchoredPosition = new Vector2(0f, -59f);
-            svRt.sizeDelta = new Vector2(-26f, -174f);
+            svRt.anchoredPosition = new Vector2(0f, -46f);
+            svRt.sizeDelta = new Vector2(-26f, -148f);
 
-            // 3. 分类按钮条（位于搜索框与滚动列表之间）
+            // 3. 分类按钮条（位于搜索框与滚动列表之间，高 50，占 68~118px）
             Transform bar = CreateCategoryBar(panelRt, sbRt);
 
             // 4. 挂载列表视图（若窗口重开则复用）
@@ -128,7 +128,7 @@ namespace ItemSpawnerEnhancement
             barRt.anchorMin = new Vector2(0.5f, 1f);
             barRt.anchorMax = new Vector2(0.5f, 1f);
             barRt.pivot = new Vector2(0.5f, 1f);
-            barRt.anchoredPosition = new Vector2(0f, -94f);
+            barRt.anchoredPosition = new Vector2(0f, -68f);
             barRt.sizeDelta = new Vector2(panel.rect.width * 0.90f, 50f);
             // 置于同级最上层（SetAsLastSibling），确保分类按钮不被 Scroll View 遮挡、可点击
             barRt.SetAsLastSibling();
@@ -175,17 +175,22 @@ namespace ItemSpawnerEnhancement
             {
                 image.sprite = sprite;
             }
-            image.color = ColorIdle; // 默认透明背景，保持面板原本视觉
+            image.color = ColorIdle; // 默认白色填充（悬停变灰、选中变黄由 EventTrigger 统一管理）
             image.raycastTarget = true;
 
             Button button = go.GetComponent<Button>();
             button.targetGraphic = image;
             button.transition = Selectable.Transition.None; // 颜色由代码统一管理
 
+            // 黑色细描边：作用于白色矩形 Image 的四边
+            Outline outline = go.AddComponent<Outline>();
+            outline.effectColor = new Color(0f, 0f, 0f, 1f);
+            outline.effectDistance = new Vector2(1.5f, 1.5f);
+
             MajorCategory captured = major;
             button.onClick.AddListener(() => OnMajorSelected(captured));
 
-            // 悬停反馈：PointerEnter 轻微提亮，PointerExit 恢复
+            // 悬停反馈：PointerEnter 变灰，PointerExit 恢复
             EventTrigger trigger = go.AddComponent<EventTrigger>();
             EventTrigger.Entry enter = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
             enter.callback.AddListener(delegate { if ((MajorCategory)_categoryButtons.IndexOf(button) != _currentMajor) image.color = ColorHover; });
@@ -194,7 +199,7 @@ namespace ItemSpawnerEnhancement
             trigger.triggers.Add(enter);
             trigger.triggers.Add(exit);
 
-            // 标签（加粗、白色 + 黑色细描边，保证低对比度下清晰可读）
+            // 标签（加粗、黑色文字；白色矩形+黑色描边底上黑字清晰可读）
             GameObject labelGo = new GameObject("Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
             labelGo.transform.SetParent(go.transform, false);
             RectTransform lrt = labelGo.GetComponent<RectTransform>();
@@ -208,10 +213,9 @@ namespace ItemSpawnerEnhancement
             text.fontSize = 19f;
             text.fontStyle = FontStyles.Bold;
             text.alignment = TextAlignmentOptions.Center;
-            text.color = Color.white;
+            text.color = Color.black; // 纯黑文字，白色矩形上清晰可读
             text.raycastTarget = false; // 文字不拦截点击，保证整块按钮区域可点
-            text.outlineWidth = 0.14f;  // 黑色细描边提升对比度
-            text.outlineColor = Color.black;
+            text.outlineWidth = 0f;     // 黑字无需描边
             text.text = ItemCatalog.GetMajorLabel(major);
 
             _categoryButtons.Add(button);

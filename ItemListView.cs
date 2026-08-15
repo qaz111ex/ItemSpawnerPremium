@@ -325,11 +325,13 @@ namespace ItemSpawnerEnhancement
                 if (_searchInput.textComponent != null)
                 {
                     _searchInput.textComponent.font = font;
+                    _searchInput.textComponent.fontSize = 24f; // 与搜索框新高度匹配
                 }
                 TMP_Text placeholder = _searchInput.placeholder as TMP_Text;
                 if (placeholder != null)
                 {
                     placeholder.font = font;
+                    placeholder.fontSize = 24f; // 与输入文字字号一致
                     placeholder.text = IsChineseLanguage() ? "搜索..." : "Search...";
                 }
             }
