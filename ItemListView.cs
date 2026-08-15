@@ -352,19 +352,10 @@ namespace ItemSpawnerEnhancement
                         {
                             continue;
                         }
-                        if (m.mainTexture is Texture2D mainTex && mainTex != null)
+                        Texture2D tex = GetMaterialMainTexture(m);
+                        if (tex != null)
                         {
-                            return mainTex;
-                        }
-                        Texture tex = m.GetTexture("_MainTex");
-                        if (tex is Texture2D tex2 && tex2 != null)
-                        {
-                            return tex2;
-                        }
-                        tex = m.GetTexture("_BaseMap");
-                        if (tex is Texture2D tex3 && tex3 != null)
-                        {
-                            return tex3;
+                            return tex;
                         }
                     }
                 }
@@ -372,6 +363,60 @@ namespace ItemSpawnerEnhancement
             catch (Exception ex)
             {
                 Plugin.Log.LogWarning("ItemSpawnerPlus: icon extraction failed for " + item.name + ": " + ex.Message);
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// 安全提取材质的主纹理。
+        /// 只访问材质实际拥有的纹理属性（GetTexturePropertyNames），
+        /// 避免对不存在的属性调用 GetTexture 触发 Unity 报错日志（如 M_Warpsketball 的 shader 无 _MainTex/_BaseMap）。
+        /// </summary>
+        private static Texture2D GetMaterialMainTexture(Material m)
+        {
+            // 1) mainTexture（shader 声明 _MainTex 时可用，属性不存在时返回 null 不报错）
+            if (m.mainTexture is Texture2D mainTex && mainTex != null)
+            {
+                return mainTex;
+            }
+            string[] props = m.GetTexturePropertyNames();
+            if (props == null || props.Length == 0)
+            {
+                return null;
+            }
+            // 2) 优先常见主纹理属性名
+            string[] preferred = new string[]
+            {
+                "_MainTex", "_BaseMap", "_BaseColorMap", "_AlbedoMap",
+                "_MainTex2", "_Albedo", "_Diffuse", "_DiffuseMap",
+            };
+            for (int p = 0; p < preferred.Length; p++)
+            {
+                for (int q = 0; q < props.Length; q++)
+                {
+                    if (string.Equals(props[q], preferred[p], StringComparison.OrdinalIgnoreCase))
+                    {
+                        Texture t = m.GetTexture(props[q]);
+                        if (t is Texture2D t2d && t2d != null)
+                        {
+                            return t2d;
+                        }
+                        break;
+                    }
+                }
+            }
+            // 3) 取第一个非空纹理属性
+            for (int k = 0; k < props.Length; k++)
+            {
+                if (string.IsNullOrEmpty(props[k]))
+                {
+                    continue;
+                }
+                Texture t = m.GetTexture(props[k]);
+                if (t is Texture2D t2d && t2d != null)
+                {
+                    return t2d;
+                }
             }
             return null;
         }
