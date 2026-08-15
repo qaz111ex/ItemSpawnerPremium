@@ -288,6 +288,94 @@ namespace ItemSpawnerEnhancement
             }
         }
 
+        /// <summary>
+        /// 已知 UIData.icon 在游戏数据中错误/缺失的物品：这些物品的图标从 3D 模型专属材质提取。
+        /// （例：Warpsketball 太空篮球的 UIData.icon 在游戏数据中错误地指向普通篮球贴图，
+        ///  但其 3D 模型使用专属材质 M_Warpsketball。）
+        /// </summary>
+        private static readonly HashSet<string> IconFixItems = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Warpsketball",
+        };
+
+        /// <summary>解析物品图标：优先 UIData.icon；对已知错误物品从模型材质提取真实外观。</summary>
+        private static Texture2D ResolveIcon(Item item, string prefab)
+        {
+            if (item == null)
+            {
+                return null;
+            }
+            if (item.UIData != null)
+            {
+                if (!IconFixItems.Contains(prefab))
+                {
+                    return item.UIData.icon;
+                }
+                Texture2D modelTex = ExtractModelMainTexture(item);
+                if (modelTex != null)
+                {
+                    return modelTex;
+                }
+                return item.UIData.icon;
+            }
+            return null;
+        }
+
+        /// <summary>从物品 3D 模型（排除手部/身体模型）的材质中提取主纹理作为图标。</summary>
+        private static Texture2D ExtractModelMainTexture(Item item)
+        {
+            try
+            {
+                Renderer[] renderers = item.GetComponentsInChildren<Renderer>(true);
+                for (int i = 0; i < renderers.Length; i++)
+                {
+                    Renderer r = renderers[i];
+                    if (r == null)
+                    {
+                        continue;
+                    }
+                    string rname = r.name.ToLowerInvariant();
+                    if (rname.Contains("hand") || rname.Contains("arm")
+                        || rname.Contains("player") || rname.Contains("character"))
+                    {
+                        continue;
+                    }
+                    Material[] mats = r.sharedMaterials;
+                    if (mats == null)
+                    {
+                        continue;
+                    }
+                    for (int j = 0; j < mats.Length; j++)
+                    {
+                        Material m = mats[j];
+                        if (m == null)
+                        {
+                            continue;
+                        }
+                        if (m.mainTexture is Texture2D mainTex && mainTex != null)
+                        {
+                            return mainTex;
+                        }
+                        Texture tex = m.GetTexture("_MainTex");
+                        if (tex is Texture2D tex2 && tex2 != null)
+                        {
+                            return tex2;
+                        }
+                        tex = m.GetTexture("_BaseMap");
+                        if (tex is Texture2D tex3 && tex3 != null)
+                        {
+                            return tex3;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogWarning("ItemSpawnerPlus: icon extraction failed for " + item.name + ": " + ex.Message);
+            }
+            return null;
+        }
+
         private void Rebuild()
         {
             if (_content == null || _template == null)
@@ -333,9 +421,9 @@ namespace ItemSpawnerEnhancement
                 if (iconTrans != null)
                 {
                     RawImage icon = iconTrans.GetComponent<RawImage>();
-                    if (icon != null && entry.item.UIData != null)
+                    if (icon != null)
                     {
-                        icon.texture = entry.item.UIData.icon;
+                        icon.texture = ResolveIcon(entry.item, entry.prefabName);
                     }
                 }
                 Button button = clone.GetComponent<Button>();
