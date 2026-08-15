@@ -208,7 +208,7 @@ namespace ItemSpawnerEnhancement
 
             TextMeshProUGUI text = labelGo.GetComponent<TextMeshProUGUI>();
             text.font = font;
-            text.fontSize = 19f;
+            text.fontSize = 22f;
             text.fontStyle = FontStyles.Bold;
             text.alignment = TextAlignmentOptions.Center;
             text.color = Color.white;
