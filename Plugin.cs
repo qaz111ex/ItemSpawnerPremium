@@ -17,7 +17,7 @@ namespace ItemSpawnerEnhancement
         private void Awake()
         {
             Log = Logger;
-            Harmony harmony = new Harmony("com.example.ItemSpawnerEnhancement");
+            Harmony harmony = new Harmony("com.itemspawnerplus.ItemSpawnerPlus");
             harmony.PatchAll(Assembly.GetExecutingAssembly());
             Log.LogInfo("ItemSpawner Enhancement loaded!");
         }
@@ -43,14 +43,15 @@ namespace ItemSpawnerEnhancement
         }
 
         /// <summary>
-        /// 完全接管 RefreshEntries：原逻辑用英文内部名填充条目且无分类排序。
+        /// 接管 RefreshEntries：仅当 UiEnhancer.Setup 成功接管 UI 后才禁用原逻辑，
+        /// 否则回退到原模组的填充逻辑，避免 Setup 失败时窗口永久空白。
         /// </summary>
         [HarmonyPatch(typeof(ItemSpawner.ItemSpawnerWindow), nameof(ItemSpawner.ItemSpawnerWindow.RefreshEntries))]
         private static class Patch_RefreshEntries
         {
             private static bool Prefix()
             {
-                return false;
+                return !UiEnhancer.SetupSucceeded;
             }
         }
 
@@ -78,12 +79,20 @@ namespace ItemSpawnerEnhancement
                         Action<Item> d = (Action<Item>)Delegate.CreateDelegate(typeof(Action<Item>), __instance, onThrown);
                         GlobalEvents.OnItemThrown -= d;
                     }
+                    else
+                    {
+                        Log.LogError("ItemSpawnerPlus: WarpOnThrow.OnItemThrown 反射失败，委托未移除，可能泄漏");
+                    }
                     // 等效清理 2：调用基类 MonoBehaviourPunCallbacks.OnDisable
                     MethodInfo baseOnDisable = typeof(MonoBehaviourPunCallbacks).GetMethod("OnDisable",
                         BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
                     if (baseOnDisable != null)
                     {
                         baseOnDisable.Invoke(__instance, null);
+                    }
+                    else
+                    {
+                        Log.LogError("ItemSpawnerPlus: MonoBehaviourPunCallbacks.OnDisable 反射失败，基类清理被跳过");
                     }
                 }
                 catch (Exception ex)

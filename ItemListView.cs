@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using Photon.Pun;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -34,6 +35,8 @@ namespace ItemSpawnerEnhancement
         private TMP_FontAsset _fontLatin;
         private TMP_FontAsset _fontCjk;
         private Action<MajorCategory> _onMajorChanged;
+        private bool _subscribedInput;
+        private bool _subscribedLanguage;
 
         public void Init(Transform content, Transform template, TMP_InputField searchInput,
             Action<MajorCategory> onMajorChanged)
@@ -48,11 +51,16 @@ namespace ItemSpawnerEnhancement
 
             BuildCatalog();
 
-            if (_searchInput != null)
+            if (_searchInput != null && !_subscribedInput)
             {
                 _searchInput.onValueChanged.AddListener(OnSearchChanged);
+                _subscribedInput = true;
             }
-            LocalizedText.OnLangugageChanged += OnLanguageChanged;
+            if (!_subscribedLanguage)
+            {
+                LocalizedText.OnLangugageChanged += OnLanguageChanged;
+                _subscribedLanguage = true;
+            }
 
             RefreshFonts();
             Rebuild();
@@ -63,10 +71,19 @@ namespace ItemSpawnerEnhancement
             LocalizedText.OnLangugageChanged -= OnLanguageChanged;
         }
 
-        /// <summary>停止监听（组件复用前调用）。</summary>
+        /// <summary>停止监听（组件复用前调用，保证幂等）。</summary>
         public void Stop()
         {
-            LocalizedText.OnLangugageChanged -= OnLanguageChanged;
+            if (_subscribedLanguage)
+            {
+                LocalizedText.OnLangugageChanged -= OnLanguageChanged;
+                _subscribedLanguage = false;
+            }
+            if (_subscribedInput && _searchInput != null)
+            {
+                _searchInput.onValueChanged.RemoveListener(OnSearchChanged);
+                _subscribedInput = false;
+            }
         }
 
         public void SetMajor(MajorCategory major)
@@ -104,6 +121,7 @@ namespace ItemSpawnerEnhancement
             }
             _all.Sort(CompareEntries);
             RefreshFonts();
+            UiEnhancer.RefreshButtonLabels(); // 分类按钮文字/字体随语言刷新
             Rebuild();
         }
 
@@ -117,29 +135,37 @@ namespace ItemSpawnerEnhancement
             }
             foreach (Item item in db.Objects)
             {
-                if (item == null)
+                try
                 {
-                    continue;
+                    if (item == null)
+                    {
+                        continue;
+                    }
+                    string prefab = item.gameObject.name;
+                    if (string.IsNullOrEmpty(prefab) || ItemCatalog.IsHidden(prefab))
+                    {
+                        continue;
+                    }
+                    string display = ResolveDisplayName(item, prefab);
+                    ItemCategory tags;
+                    ItemCategory primary;
+                    ResolveCategories(item, prefab, out tags, out primary);
+                    _all.Add(new Entry
+                    {
+                        item = item,
+                        displayName = display,
+                        enName = ResolveEnglishName(item, prefab),
+                        prefabName = prefab,
+                        pinyin = ToPinyin(display),
+                        tags = tags,
+                        primary = primary,
+                    });
                 }
-                string prefab = item.gameObject.name;
-                if (string.IsNullOrEmpty(prefab) || ItemCatalog.IsHidden(prefab))
+                catch (Exception ex)
                 {
-                    continue;
+                    // 单个物品异常不应摧毁整个目录（参考 ItemBrowser 的逐条隔离）
+                    Plugin.Log.LogWarning("ItemSpawnerPlus: 跳过异常物品 " + (item != null ? item.gameObject.name : "<null>") + ": " + ex.Message);
                 }
-                string display = ResolveDisplayName(item, prefab);
-                ItemCategory tags;
-                ItemCategory primary;
-                ResolveCategories(item, prefab, out tags, out primary);
-                _all.Add(new Entry
-                {
-                    item = item,
-                    displayName = display,
-                    enName = ResolveEnglishName(item, prefab),
-                    prefabName = prefab,
-                    pinyin = ToPinyin(display),
-                    tags = tags,
-                    primary = primary,
-                });
             }
             _all.Sort(CompareEntries);
         }
@@ -167,7 +193,7 @@ namespace ItemSpawnerEnhancement
                 return (custom.Length >= 2 && !string.IsNullOrEmpty(custom[1])) ? custom[1] : custom[0];
             }
             // 3) 游戏本地化名（基于 Item.UIData.itemName 的动态解析，兼容所有版本物品与语言）
-            if (item != null)
+            if (item != null && item.UIData != null)
             {
                 string localized = item.GetName();
                 if (!string.IsNullOrEmpty(localized) && !localized.StartsWith("LOC:", StringComparison.OrdinalIgnoreCase))
@@ -188,7 +214,13 @@ namespace ItemSpawnerEnhancement
         {
             if (item != null && item.UIData != null && !string.IsNullOrEmpty(item.UIData.itemName))
             {
-                return item.UIData.itemName;
+                string name = item.UIData.itemName;
+                // 与 ResolveDisplayName 保持一致：剥离 "LOC:" 前缀（若 itemName 本身是本地化 key）
+                if (name.StartsWith("LOC:", StringComparison.OrdinalIgnoreCase))
+                {
+                    name = name.Substring(4).Trim();
+                }
+                return name;
             }
             return prefab;
         }
@@ -204,17 +236,15 @@ namespace ItemSpawnerEnhancement
             tags = ItemCategory.None;
             primary = ItemCategory.Props;
 
-            // 1) 静态表
+            // 1) 静态表（主分类由 PrimaryOfTags 运行时推导，避免双份维护漂移）
             if (ItemCatalog.ItemTagMap.TryGetValue(prefab, out tags))
             {
-                if (!ItemCatalog.ItemPrimaryMap.TryGetValue(prefab, out primary))
-                {
-                    primary = ItemCatalog.PrimaryOfTags(tags);
-                }
+                primary = ItemCatalog.PrimaryOfTags(tags);
                 return;
             }
 
-            // 2) 运行时组件/标签兜底
+            // 2) 运行时组件/标签兜底（注意：Item 实例 Awake 时会强制添加 ItemCooking，
+            //    故不以此组件判食物，仅用 ItemTags 与 Action_Consume）
             if (item != null)
             {
                 Item.ItemTags itags = item.itemTags;
@@ -231,7 +261,7 @@ namespace ItemSpawnerEnhancement
                 {
                     tags |= ItemCategory.Food;
                 }
-                if (item.GetComponent<ItemCooking>() != null || item.GetComponent<Action_Consume>() != null)
+                if (item.GetComponent<Action_Consume>() != null)
                 {
                     tags |= ItemCategory.Food;
                 }
@@ -274,6 +304,10 @@ namespace ItemSpawnerEnhancement
         private void RefreshFonts()
         {
             TMP_FontAsset font = IsChineseLanguage() ? _fontCjk : _fontLatin;
+            if (font == null)
+            {
+                return; // 字体未找到时保留模板原字体，避免赋 null
+            }
             if (_searchInput != null)
             {
                 if (_searchInput.textComponent != null)
@@ -286,139 +320,6 @@ namespace ItemSpawnerEnhancement
                     placeholder.font = font;
                 }
             }
-        }
-
-        /// <summary>
-        /// 已知 UIData.icon 在游戏数据中错误/缺失的物品：这些物品的图标从 3D 模型专属材质提取。
-        /// （例：Warpsketball 太空篮球的 UIData.icon 在游戏数据中错误地指向普通篮球贴图，
-        ///  但其 3D 模型使用专属材质 M_Warpsketball。）
-        /// </summary>
-        private static readonly HashSet<string> IconFixItems = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "Warpsketball",
-        };
-
-        /// <summary>解析物品图标：优先 UIData.icon；对已知错误物品从模型材质提取真实外观。</summary>
-        private static Texture2D ResolveIcon(Item item, string prefab)
-        {
-            if (item == null)
-            {
-                return null;
-            }
-            if (item.UIData != null)
-            {
-                if (!IconFixItems.Contains(prefab))
-                {
-                    return item.UIData.icon;
-                }
-                Texture2D modelTex = ExtractModelMainTexture(item);
-                if (modelTex != null)
-                {
-                    return modelTex;
-                }
-                return item.UIData.icon;
-            }
-            return null;
-        }
-
-        /// <summary>从物品 3D 模型（排除手部/身体模型）的材质中提取主纹理作为图标。</summary>
-        private static Texture2D ExtractModelMainTexture(Item item)
-        {
-            try
-            {
-                Renderer[] renderers = item.GetComponentsInChildren<Renderer>(true);
-                for (int i = 0; i < renderers.Length; i++)
-                {
-                    Renderer r = renderers[i];
-                    if (r == null)
-                    {
-                        continue;
-                    }
-                    string rname = r.name.ToLowerInvariant();
-                    if (rname.Contains("hand") || rname.Contains("arm")
-                        || rname.Contains("player") || rname.Contains("character"))
-                    {
-                        continue;
-                    }
-                    Material[] mats = r.sharedMaterials;
-                    if (mats == null)
-                    {
-                        continue;
-                    }
-                    for (int j = 0; j < mats.Length; j++)
-                    {
-                        Material m = mats[j];
-                        if (m == null)
-                        {
-                            continue;
-                        }
-                        Texture2D tex = GetMaterialMainTexture(m);
-                        if (tex != null)
-                        {
-                            return tex;
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log.LogWarning("ItemSpawnerPlus: icon extraction failed for " + item.name + ": " + ex.Message);
-            }
-            return null;
-        }
-
-        /// <summary>
-        /// 安全提取材质的主纹理。
-        /// 只访问材质实际拥有的纹理属性（GetTexturePropertyNames），
-        /// 避免对不存在的属性调用 GetTexture 触发 Unity 报错日志（如 M_Warpsketball 的 shader 无 _MainTex/_BaseMap）。
-        /// </summary>
-        private static Texture2D GetMaterialMainTexture(Material m)
-        {
-            // 1) mainTexture（shader 声明 _MainTex 时可用，属性不存在时返回 null 不报错）
-            if (m.mainTexture is Texture2D mainTex && mainTex != null)
-            {
-                return mainTex;
-            }
-            string[] props = m.GetTexturePropertyNames();
-            if (props == null || props.Length == 0)
-            {
-                return null;
-            }
-            // 2) 优先常见主纹理属性名
-            string[] preferred = new string[]
-            {
-                "_MainTex", "_BaseMap", "_BaseColorMap", "_AlbedoMap",
-                "_MainTex2", "_Albedo", "_Diffuse", "_DiffuseMap",
-            };
-            for (int p = 0; p < preferred.Length; p++)
-            {
-                for (int q = 0; q < props.Length; q++)
-                {
-                    if (string.Equals(props[q], preferred[p], StringComparison.OrdinalIgnoreCase))
-                    {
-                        Texture t = m.GetTexture(props[q]);
-                        if (t is Texture2D t2d && t2d != null)
-                        {
-                            return t2d;
-                        }
-                        break;
-                    }
-                }
-            }
-            // 3) 取第一个非空纹理属性
-            for (int k = 0; k < props.Length; k++)
-            {
-                if (string.IsNullOrEmpty(props[k]))
-                {
-                    continue;
-                }
-                Texture t = m.GetTexture(props[k]);
-                if (t is Texture2D t2d && t2d != null)
-                {
-                    return t2d;
-                }
-            }
-            return null;
         }
 
         private void Rebuild()
@@ -452,6 +353,16 @@ namespace ItemSpawnerEnhancement
                 clone.SetAsLastSibling();
                 clone.gameObject.name = entry.prefabName;
 
+                // 移除克隆条目上的 LocalizedText 组件，避免游戏语言刷新时覆盖我们设置的文本/字体
+                LocalizedText[] inheritedLts = clone.GetComponentsInChildren<LocalizedText>(true);
+                for (int li = 0; li < inheritedLts.Length; li++)
+                {
+                    if (inheritedLts[li] != null)
+                    {
+                        Destroy(inheritedLts[li]);
+                    }
+                }
+
                 Transform nameTrans = clone.Find("ItemName");
                 if (nameTrans != null)
                 {
@@ -459,16 +370,19 @@ namespace ItemSpawnerEnhancement
                     if (nameText != null)
                     {
                         nameText.text = entry.displayName;
-                        nameText.font = font;
+                        if (font != null)
+                        {
+                            nameText.font = font;
+                        }
                     }
                 }
                 Transform iconTrans = clone.Find("ItemIcon");
                 if (iconTrans != null)
                 {
                     RawImage icon = iconTrans.GetComponent<RawImage>();
-                    if (icon != null)
+                    if (icon != null && entry.item.UIData != null)
                     {
-                        icon.texture = ResolveIcon(entry.item, entry.prefabName);
+                        icon.texture = entry.item.UIData.icon;
                     }
                 }
                 Button button = clone.GetComponent<Button>();
@@ -520,6 +434,12 @@ namespace ItemSpawnerEnhancement
             {
                 return;
             }
+            // 原模组 Spawn 在未连接/无本地角色时静默返回，这里给出明确提示
+            if (!PhotonNetwork.IsConnected || Character.localCharacter == null)
+            {
+                Plugin.Log.LogWarning("ItemSpawnerPlus: 无法生成 " + item.gameObject.name + "（未连接到房间或本地角色不存在）");
+                return;
+            }
             try
             {
                 ItemSpawner.Plugin.Spawn(item);
@@ -562,9 +482,12 @@ namespace ItemSpawnerEnhancement
 
         public static bool IsChineseLanguage()
         {
+            // 简体/繁体/日文/韩文均需 CJK 字体（游戏 SetLanguage 对这些语言切换中文字体 fallback）
             LocalizedText.Language language = LocalizedText.CURRENT_LANGUAGE;
             return language == LocalizedText.Language.SimplifiedChinese
-                || language == LocalizedText.Language.TraditionalChinese;
+                || language == LocalizedText.Language.TraditionalChinese
+                || language == LocalizedText.Language.Japanese
+                || language == LocalizedText.Language.Korean;
         }
 
         public static TMP_FontAsset FindFont(string name)
@@ -584,14 +507,20 @@ namespace ItemSpawnerEnhancement
             return null;
         }
 
-        /// <summary>获取游戏主 UI 字体（带中文 fallback，用于中文显示）。</summary>
+        /// <summary>获取游戏主 UI 字体（带中文 fallback，用于 CJK 显示）。</summary>
         public static TMP_FontAsset GetGameBaseFont()
         {
             if (FontFallbackSwapper.instance != null && FontFallbackSwapper.instance.mainBaseFont != null)
             {
                 return FontFallbackSwapper.instance.mainBaseFont;
             }
-            TMP_FontAsset muli = FindFont("Muli");
+            // TMP 字体资源名惯例带 " SDF" 后缀（如 "Muli SDF"），"Muli" 为 LocalizedText 的基名
+            TMP_FontAsset muli = FindFont("Muli SDF");
+            if (muli != null)
+            {
+                return muli;
+            }
+            muli = FindFont("Muli");
             if (muli != null)
             {
                 return muli;

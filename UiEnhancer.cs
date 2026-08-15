@@ -16,8 +16,11 @@ namespace ItemSpawnerEnhancement
     /// </summary>
     public static class UiEnhancer
     {
+        /// <summary>Setup 是否成功接管 UI；Patch_RefreshEntries 依赖此标志决定是否禁用原逻辑。</summary>
+        internal static bool SetupSucceeded;
+
         private static readonly List<Button> _categoryButtons = new List<Button>();
-        private static readonly List<RectTransform> _categoryButtonRects = new List<RectTransform>();
+        private static readonly List<TextMeshProUGUI> _categoryButtonLabels = new List<TextMeshProUGUI>();
         private static ItemListView _view;
 
         private static readonly Color ColorIdle = new Color(1f, 1f, 1f, 0f);      // 透明背景，保持面板原本视觉
@@ -26,8 +29,10 @@ namespace ItemSpawnerEnhancement
 
         public static void Setup(ItemSpawner.ItemSpawnerWindow window)
         {
+            SetupSucceeded = false;
             if (window == null)
             {
+                Plugin.Log.LogError("ItemSpawnerPlus: Setup abort, window is null.");
                 return;
             }
             Transform canvas = window.panel.transform;
@@ -38,7 +43,8 @@ namespace ItemSpawnerEnhancement
             Transform template = canvas.FindChildRecursive("ItemEntry");
             if (searchGo == null || scrollViewGo == null || contentGo == null || template == null)
             {
-                Plugin.Log.LogWarning("ItemSpawnerPlus: UI nodes not found, abort setup.");
+                Plugin.Log.LogError("ItemSpawnerPlus: UI nodes not found, abort setup. "
+                    + "原模组列表填充逻辑将保持启用（避免窗口空白）。");
                 return;
             }
             TMP_InputField searchInput = searchGo.GetComponent<TMP_InputField>();
@@ -87,6 +93,26 @@ namespace ItemSpawnerEnhancement
 
             // 6. 刷新分类按钮选中态
             OnMajorSelected(MajorCategory.All);
+            SetupSucceeded = true;
+        }
+
+        /// <summary>语言切换时刷新分类按钮的文字与字体（按钮 label 在创建时按当时语言固化）。</summary>
+        internal static void RefreshButtonLabels()
+        {
+            TMP_FontAsset font = ItemListView.IsChineseLanguage() ? ItemListView.GetGameBaseFont() : ItemListView.FindFont("DarumaDropOne-Regular SDF");
+            for (int i = 0; i < _categoryButtonLabels.Count; i++)
+            {
+                TextMeshProUGUI label = _categoryButtonLabels[i];
+                if (label == null)
+                {
+                    continue;
+                }
+                label.text = ItemCatalog.GetMajorLabel((MajorCategory)i);
+                if (font != null)
+                {
+                    label.font = font;
+                }
+            }
         }
 
         private static Transform CreateCategoryBar(RectTransform panel, RectTransform searchBar)
@@ -118,7 +144,7 @@ namespace ItemSpawnerEnhancement
             TMP_FontAsset font = ItemListView.IsChineseLanguage() ? ItemListView.GetGameBaseFont() : ItemListView.FindFont("DarumaDropOne-Regular SDF");
 
             _categoryButtons.Clear();
-            _categoryButtonRects.Clear();
+            _categoryButtonLabels.Clear();
             MajorCategory[] majors = (MajorCategory[])Enum.GetValues(typeof(MajorCategory));
             for (int i = 0; i < majors.Length; i++)
             {
@@ -173,13 +199,13 @@ namespace ItemSpawnerEnhancement
             text.fontSize = 19f;
             text.fontStyle = FontStyles.Bold;
             text.alignment = TextAlignmentOptions.Center;
-            text.color = Color.white;
+            text.color = new Color(0.82f, 0.82f, 0.82f, 1f); // 浅灰色文字
             text.raycastTarget = false; // 文字不拦截点击，保证整块按钮区域可点
             text.outlineWidth = 0f;     // 无描边
             text.text = ItemCatalog.GetMajorLabel(major);
 
             _categoryButtons.Add(button);
-            _categoryButtonRects.Add(rt);
+            _categoryButtonLabels.Add(text);
         }
 
         private static MajorCategory _currentMajor = MajorCategory.All;
