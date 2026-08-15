@@ -9,7 +9,7 @@ using Zorro.Core;
 namespace ItemSpawnerEnhancement
 {
     /// <summary>
-    /// 物品列表视图：负责物品条目收集、本地化显示名解析、中文/拼音搜索、分类过滤与条目重建。
+    /// 物品列表视图：物品条目收集、本地化显示名解析、中文/拼音搜索、多标签分类过滤与排序。
     /// </summary>
     public class ItemListView : MonoBehaviour
     {
@@ -20,7 +20,8 @@ namespace ItemSpawnerEnhancement
             public string enName;      // 英文显示名（用于英文关键词搜索）
             public string prefabName;  // 英文 prefab 名
             public string pinyin;      // 显示名的拼音全拼（无空格，小写）
-            public ItemCategory category;
+            public ItemCategory tags;       // 多标签（Flags）
+            public ItemCategory primary;    // 主分类（用于排序）
         }
 
         private Transform _content;
@@ -125,14 +126,19 @@ namespace ItemSpawnerEnhancement
                 {
                     continue;
                 }
+                string display = ResolveDisplayName(item, prefab);
+                ItemCategory tags;
+                ItemCategory primary;
+                ResolveCategories(item, prefab, out tags, out primary);
                 _all.Add(new Entry
                 {
                     item = item,
-                    displayName = ResolveDisplayName(item, prefab),
+                    displayName = display,
                     enName = ResolveEnglishName(item, prefab),
                     prefabName = prefab,
-                    pinyin = ToPinyin(ResolveDisplayName(item, prefab)),
-                    category = ResolveCategory(item, prefab),
+                    pinyin = ToPinyin(display),
+                    tags = tags,
+                    primary = primary,
                 });
             }
             _all.Sort(CompareEntries);
@@ -140,7 +146,27 @@ namespace ItemSpawnerEnhancement
 
         private static string ResolveDisplayName(Item item, string prefab)
         {
-            // 优先使用游戏本地化名（基于 Item.UIData.itemName 的动态解析，兼容所有版本物品与语言）
+            // 1) 补充本地化 key 映射（UIData.itemName 与游戏本地化表不对应时，如 FireWood->棍子）
+            string extraKey;
+            if (ItemCatalog.ExtraNameKeys.TryGetValue(prefab, out extraKey))
+            {
+                string text = LocalizedText.GetText(extraKey, false);
+                if (!string.IsNullOrEmpty(text) && !text.StartsWith("LOC:", StringComparison.OrdinalIgnoreCase))
+                {
+                    return text;
+                }
+            }
+            // 2) 补充自定义名称（游戏本地化表完全没有的物品，如太空篮球/风之杖）
+            string[] custom;
+            if (ItemCatalog.ExtraCustomNames.TryGetValue(prefab, out custom) && custom != null && custom.Length >= 1)
+            {
+                if (IsChineseLanguage())
+                {
+                    return custom[0];
+                }
+                return (custom.Length >= 2 && !string.IsNullOrEmpty(custom[1])) ? custom[1] : custom[0];
+            }
+            // 3) 游戏本地化名（基于 Item.UIData.itemName 的动态解析，兼容所有版本物品与语言）
             if (item != null)
             {
                 string localized = item.GetName();
@@ -149,10 +175,12 @@ namespace ItemSpawnerEnhancement
                     return localized;
                 }
             }
+            // 4) UIData.itemName 兜底
             if (item != null && item.UIData != null && !string.IsNullOrEmpty(item.UIData.itemName))
             {
                 return item.UIData.itemName;
             }
+            // 5) prefab 名兜底
             return prefab;
         }
 
@@ -165,72 +193,77 @@ namespace ItemSpawnerEnhancement
             return prefab;
         }
 
-        private static ItemCategory ResolveCategory(Item item, string prefab)
+        /// <summary>
+        /// 解析物品的多标签分类与主分类。
+        /// 1) 静态表（基于游戏交互提示/组件/显示名设计的 148 个已知物品）
+        /// 2) 运行时组件/ItemTags 兜底（兼容模组新增物品）
+        /// 3) prefab 名特征
+        /// </summary>
+        private static void ResolveCategories(Item item, string prefab, out ItemCategory tags, out ItemCategory primary)
         {
-            // 1) 已知物品：按本地化表英文显示名精确分类（覆盖全部版本物品）
-            if (item != null && item.UIData != null && !string.IsNullOrEmpty(item.UIData.itemName))
+            tags = ItemCategory.None;
+            primary = ItemCategory.Props;
+
+            // 1) 静态表
+            if (ItemCatalog.ItemTagMap.TryGetValue(prefab, out tags))
             {
-                string key = NormalizeName(item.UIData.itemName);
-                ItemCategory category;
-                if (ItemCatalog.DisplayNameCategoryMap.TryGetValue(key, out category))
+                if (!ItemCatalog.ItemPrimaryMap.TryGetValue(prefab, out primary))
                 {
-                    return category;
+                    primary = ItemCatalog.PrimaryOfTags(tags);
                 }
+                return;
             }
-            // 2) 未知物品：运行时组件/标签推断
+
+            // 2) 运行时组件/标签兜底
             if (item != null)
             {
-                Item.ItemTags tags = item.itemTags;
-                if ((tags & Item.ItemTags.Mystical) != 0
-                    || (tags & Item.ItemTags.GoldenIdol) != 0
-                    || (tags & Item.ItemTags.BookOfBones) != 0
-                    || (tags & Item.ItemTags.ScoutAmulet) != 0)
+                Item.ItemTags itags = item.itemTags;
+                if ((itags & Item.ItemTags.Mystical) != 0
+                    || (itags & Item.ItemTags.GoldenIdol) != 0
+                    || (itags & Item.ItemTags.BookOfBones) != 0
+                    || (itags & Item.ItemTags.ScoutAmulet) != 0)
                 {
-                    return ItemCategory.MysticalItem;
+                    tags |= ItemCategory.Mystical;
                 }
-                if ((tags & Item.ItemTags.PackagedFood) != 0)
+                if ((itags & Item.ItemTags.PackagedFood) != 0
+                    || (itags & Item.ItemTags.Berry) != 0
+                    || (itags & Item.ItemTags.Mushroom) != 0)
                 {
-                    return ItemCategory.PackagedFood;
-                }
-                if ((tags & Item.ItemTags.Berry) != 0)
-                {
-                    return ItemCategory.NaturalFood;
-                }
-                if ((tags & Item.ItemTags.Mushroom) != 0)
-                {
-                    return ItemCategory.Mushroom;
+                    tags |= ItemCategory.Food;
                 }
                 if (item.GetComponent<ItemCooking>() != null || item.GetComponent<Action_Consume>() != null)
                 {
-                    return ItemCategory.NaturalFood;
+                    tags |= ItemCategory.Food;
                 }
             }
+
             // 3) prefab 名特征
             if (prefab.IndexOf("Shroom", StringComparison.OrdinalIgnoreCase) >= 0
-                || prefab.IndexOf("Mushroom", StringComparison.OrdinalIgnoreCase) >= 0)
+                || prefab.IndexOf("Mushroom", StringComparison.OrdinalIgnoreCase) >= 0
+                || prefab.IndexOf("Berry", StringComparison.OrdinalIgnoreCase) >= 0)
             {
-                return ItemCategory.Mushroom;
+                tags |= ItemCategory.Food;
             }
-            if (prefab.IndexOf("Berry", StringComparison.OrdinalIgnoreCase) >= 0)
+            if (prefab.IndexOf("Rope", StringComparison.OrdinalIgnoreCase) >= 0
+                || prefab.IndexOf("Spike", StringComparison.OrdinalIgnoreCase) >= 0
+                || prefab.IndexOf("Spool", StringComparison.OrdinalIgnoreCase) >= 0
+                || prefab.IndexOf("Cannon", StringComparison.OrdinalIgnoreCase) >= 0
+                || prefab.IndexOf("Shooter", StringComparison.OrdinalIgnoreCase) >= 0)
             {
-                return ItemCategory.NaturalFood;
+                tags |= ItemCategory.Tools;
             }
-            return ItemCategory.Misc;
-        }
 
-        /// <summary>规范化英文显示名用于查表（大写、去首尾空白、撇号统一为直撇号）。</summary>
-        private static string NormalizeName(string name)
-        {
-            if (string.IsNullOrEmpty(name))
+            // 兜底：未知物品归入"场景"
+            if (tags == ItemCategory.None)
             {
-                return "";
+                tags = ItemCategory.Props;
             }
-            return name.Trim().ToUpperInvariant().Replace('\u2019', '\'').Replace('\u2018', '\'');
+            primary = ItemCatalog.PrimaryOfTags(tags);
         }
 
         private static int CompareEntries(Entry a, Entry b)
         {
-            int c = a.category.CompareTo(b.category);
+            int c = a.primary.CompareTo(b.primary);
             if (c != 0)
             {
                 return c;
@@ -321,7 +354,7 @@ namespace ItemSpawnerEnhancement
 
         private bool Matches(Entry entry, string query, string queryNoSpace)
         {
-            if (!IsInMajorCategory(entry.category, _major))
+            if (!ItemCatalog.IsInMajor(entry.tags, _major))
             {
                 return false;
             }
@@ -346,33 +379,6 @@ namespace ItemSpawnerEnhancement
                 return true;
             }
             return false;
-        }
-
-        private static bool IsInMajorCategory(ItemCategory category, MajorCategory major)
-        {
-            switch (major)
-            {
-                case MajorCategory.All:
-                    return true;
-                case MajorCategory.Food:
-                    return category == ItemCategory.NaturalFood
-                        || category == ItemCategory.PackagedFood
-                        || category == ItemCategory.Mushroom;
-                case MajorCategory.Tools:
-                    return category == ItemCategory.Deployable || category == ItemCategory.Tool;
-                case MajorCategory.Weapon:
-                    return category == ItemCategory.Weapon;
-                case MajorCategory.Mystical:
-                    return category == ItemCategory.MysticalFood || category == ItemCategory.MysticalItem;
-                case MajorCategory.Equipment:
-                    return category == ItemCategory.Equipment;
-                case MajorCategory.Consumables:
-                    return category == ItemCategory.Consumable;
-                case MajorCategory.Misc:
-                    return category == ItemCategory.Misc;
-                default:
-                    return true;
-            }
         }
 
         private void SpawnItem(Item item)
