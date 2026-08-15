@@ -170,11 +170,9 @@ namespace ItemSpawnerEnhancement
                                                  // Image 覆盖整个 RectTransform → 可点击范围 = 按钮大小
 
             Image image = go.GetComponent<Image>();
-            Sprite sprite = FindSprite("UISprite");
-            if (sprite != null)
-            {
-                image.sprite = sprite;
-            }
+            // 不使用 UISprite：该 sprite 为圆角且带投影纹理，不透明填充时暴露圆角与像素阴影。
+            // 置空 sprite 后 Image 渲染为纯直角矩形，黑色描边由下方 Outline 组件提供。
+            image.sprite = null;
             image.color = ColorIdle; // 默认白色填充（悬停变灰、选中变黄由 EventTrigger 统一管理）
             image.raycastTarget = true;
 
@@ -185,7 +183,7 @@ namespace ItemSpawnerEnhancement
             // 黑色细描边：作用于白色矩形 Image 的四边
             Outline outline = go.AddComponent<Outline>();
             outline.effectColor = new Color(0f, 0f, 0f, 1f);
-            outline.effectDistance = new Vector2(1.5f, 1.5f);
+            outline.effectDistance = new Vector2(1f, 1f); // 更细的直角描边，避免任何像素感
 
             MajorCategory captured = major;
             button.onClick.AddListener(() => OnMajorSelected(captured));
@@ -199,7 +197,7 @@ namespace ItemSpawnerEnhancement
             trigger.triggers.Add(enter);
             trigger.triggers.Add(exit);
 
-            // 标签（加粗、黑色文字；白色矩形+黑色描边底上黑字清晰可读）
+            // 标签（加粗、白色文字 + 黑色细描边）
             GameObject labelGo = new GameObject("Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
             labelGo.transform.SetParent(go.transform, false);
             RectTransform lrt = labelGo.GetComponent<RectTransform>();
@@ -213,9 +211,10 @@ namespace ItemSpawnerEnhancement
             text.fontSize = 19f;
             text.fontStyle = FontStyles.Bold;
             text.alignment = TextAlignmentOptions.Center;
-            text.color = Color.black; // 纯黑文字，白色矩形上清晰可读
+            text.color = Color.white;
             text.raycastTarget = false; // 文字不拦截点击，保证整块按钮区域可点
-            text.outlineWidth = 0f;     // 黑字无需描边
+            text.outlineWidth = 0.14f;  // 白色 + 黑色细描边
+            text.outlineColor = Color.black;
             text.text = ItemCatalog.GetMajorLabel(major);
 
             _categoryButtons.Add(button);
