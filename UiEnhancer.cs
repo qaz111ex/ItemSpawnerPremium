@@ -57,13 +57,14 @@ namespace ItemSpawnerEnhancement
             sbRt.pivot = new Vector2(0.5f, 1f);
             sbRt.anchoredPosition = new Vector2(0f, -12f);
             float panelWidth = (panelRt != null) ? panelRt.rect.width : 900f;
-            sbRt.sizeDelta = new Vector2(panelWidth * 0.86f, 38f);
+            sbRt.sizeDelta = new Vector2(panelWidth * 0.86f, 76f);
 
             // 2. Scroll View 下移并收窄高度，为顶部搜索框 + 分类条让位。
-            //    分类条高 60 位于 58~118px，Scroll View 顶部缩进 = 46 + 148/2 = 120px。
+            //    搜索框高 76 位于 12~88px，分类条高 50 位于 94~144px，
+            //    Scroll View 顶部缩进 = 59 + 174/2 = 146px（分类条底 144 + 2px 间距）。
             RectTransform svRt = scrollViewGo as RectTransform;
-            svRt.anchoredPosition = new Vector2(0f, -46f);
-            svRt.sizeDelta = new Vector2(-26f, -148f);
+            svRt.anchoredPosition = new Vector2(0f, -59f);
+            svRt.sizeDelta = new Vector2(-26f, -174f);
 
             // 3. 分类按钮条（位于搜索框与滚动列表之间）
             Transform bar = CreateCategoryBar(panelRt, sbRt);
@@ -127,8 +128,8 @@ namespace ItemSpawnerEnhancement
             barRt.anchorMin = new Vector2(0.5f, 1f);
             barRt.anchorMax = new Vector2(0.5f, 1f);
             barRt.pivot = new Vector2(0.5f, 1f);
-            barRt.anchoredPosition = new Vector2(0f, -58f);
-            barRt.sizeDelta = new Vector2(panel.rect.width * 0.90f, 60f);
+            barRt.anchoredPosition = new Vector2(0f, -94f);
+            barRt.sizeDelta = new Vector2(panel.rect.width * 0.90f, 50f);
             // 置于同级最上层（SetAsLastSibling），确保分类按钮不被 Scroll View 遮挡、可点击
             barRt.SetAsLastSibling();
 
@@ -165,7 +166,7 @@ namespace ItemSpawnerEnhancement
             GameObject go = new GameObject("CatButton", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
             RectTransform rt = go.GetComponent<RectTransform>();
             rt.SetParent(parent, false);
-            rt.sizeDelta = new Vector2(0f, 60f); // 宽度由布局均分；高度由自身 sizeDelta 决定（childControlHeight=false），
+            rt.sizeDelta = new Vector2(0f, 50f); // 宽度由布局均分；高度由自身 sizeDelta 决定（childControlHeight=false），
                                                  // Image 覆盖整个 RectTransform → 可点击范围 = 按钮大小
 
             Image image = go.GetComponent<Image>();

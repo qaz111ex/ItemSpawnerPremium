@@ -66,11 +66,12 @@ namespace ItemSpawnerEnhancement
             Rebuild();
         }
 
-        /// <summary>挂接搜索输入监听（幂等）；UiEnhancer.Setup 清空旧监听后亦调用以恢复。</summary>
+        /// <summary>挂接搜索输入监听（无条件强制重挂接，幂等）；UiEnhancer.Setup 清空旧监听后调用以恢复。</summary>
         public void SubscribeSearchInput()
         {
-            if (_searchInput != null && !_subscribedInput)
+            if (_searchInput != null)
             {
+                _searchInput.onValueChanged.RemoveListener(OnSearchChanged);
                 _searchInput.onValueChanged.AddListener(OnSearchChanged);
                 _subscribedInput = true;
             }
@@ -329,6 +330,7 @@ namespace ItemSpawnerEnhancement
                 if (placeholder != null)
                 {
                     placeholder.font = font;
+                    placeholder.text = IsChineseLanguage() ? "搜索..." : "Search...";
                 }
             }
         }
