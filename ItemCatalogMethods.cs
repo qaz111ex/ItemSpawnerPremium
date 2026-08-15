@@ -49,21 +49,6 @@ namespace ItemSpawnerEnhancement
             }
         }
 
-        /// <summary>二级标签 -> 一级分类（用于过滤按钮）。</summary>
-        public static MajorCategory GetMajorOfTag(ItemCategory tag)
-        {
-            switch (tag)
-            {
-                case ItemCategory.Tools: return MajorCategory.Tools;
-                case ItemCategory.Food: return MajorCategory.Food;
-                case ItemCategory.Mystical: return MajorCategory.Mystical;
-                case ItemCategory.Equipment: return MajorCategory.Equipment;
-                case ItemCategory.Consumables: return MajorCategory.Consumables;
-                case ItemCategory.Props: return MajorCategory.Props;
-                default: return MajorCategory.All;
-            }
-        }
-
         /// <summary>判断某个标签是否属于某个一级分类（All 恒真）。</summary>
         public static bool IsInMajor(ItemCategory tags, MajorCategory major)
         {

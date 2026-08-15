@@ -66,6 +66,16 @@ namespace ItemSpawnerEnhancement
             Rebuild();
         }
 
+        /// <summary>挂接搜索输入监听（幂等）；UiEnhancer.Setup 清空旧监听后亦调用以恢复。</summary>
+        public void SubscribeSearchInput()
+        {
+            if (_searchInput != null && !_subscribedInput)
+            {
+                _searchInput.onValueChanged.AddListener(OnSearchChanged);
+                _subscribedInput = true;
+            }
+        }
+
         private void OnDestroy()
         {
             LocalizedText.OnLangugageChanged -= OnLanguageChanged;
@@ -243,8 +253,9 @@ namespace ItemSpawnerEnhancement
                 return;
             }
 
-            // 2) 运行时组件/标签兜底（注意：Item 实例 Awake 时会强制添加 ItemCooking，
-            //    故不以此组件判食物，仅用 ItemTags 与 Action_Consume）
+            // 2) 运行时组件/标签兜底。
+            //    注意：目录遍历的是 ItemDatabase.Objects（prefab 资产，Awake 不执行），
+            //    序列化在食物 prefab 上的 ItemCooking 表示"可烹饪食物"，对目录分类有意义。
             if (item != null)
             {
                 Item.ItemTags itags = item.itemTags;
@@ -261,7 +272,7 @@ namespace ItemSpawnerEnhancement
                 {
                     tags |= ItemCategory.Food;
                 }
-                if (item.GetComponent<Action_Consume>() != null)
+                if (item.GetComponent<ItemCooking>() != null || item.GetComponent<Action_Consume>() != null)
                 {
                     tags |= ItemCategory.Food;
                 }
@@ -303,7 +314,7 @@ namespace ItemSpawnerEnhancement
 
         private void RefreshFonts()
         {
-            TMP_FontAsset font = IsChineseLanguage() ? _fontCjk : _fontLatin;
+            TMP_FontAsset font = NeedsCjkFont() ? _fontCjk : _fontLatin;
             if (font == null)
             {
                 return; // 字体未找到时保留模板原字体，避免赋 null
@@ -339,7 +350,7 @@ namespace ItemSpawnerEnhancement
                 Destroy(child.gameObject);
             }
 
-            TMP_FontAsset font = IsChineseLanguage() ? _fontCjk : _fontLatin;
+            TMP_FontAsset font = NeedsCjkFont() ? _fontCjk : _fontLatin;
             string query = (_query == null) ? "" : _query.Trim().ToLowerInvariant();
             string queryNoSpace = query.Replace(" ", "");
 
@@ -480,7 +491,8 @@ namespace ItemSpawnerEnhancement
             return sb.ToString();
         }
 
-        public static bool IsChineseLanguage()
+        /// <summary>当前语言是否需要 CJK 字体（简/繁/日/韩），用于字体选择。</summary>
+        public static bool NeedsCjkFont()
         {
             // 简体/繁体/日文/韩文均需 CJK 字体（游戏 SetLanguage 对这些语言切换中文字体 fallback）
             LocalizedText.Language language = LocalizedText.CURRENT_LANGUAGE;
@@ -488,6 +500,15 @@ namespace ItemSpawnerEnhancement
                 || language == LocalizedText.Language.TraditionalChinese
                 || language == LocalizedText.Language.Japanese
                 || language == LocalizedText.Language.Korean;
+        }
+
+        /// <summary>当前语言是否为中文（仅简/繁），用于中文文案分支（按钮标签与 ExtraCustomNames 自定义名）。</summary>
+        public static bool IsChineseLanguage()
+        {
+            // 仅简体/繁体返回 true；日/韩玩家使用英文文案，但字体仍需 CJK（见 NeedsCjkFont）
+            LocalizedText.Language language = LocalizedText.CURRENT_LANGUAGE;
+            return language == LocalizedText.Language.SimplifiedChinese
+                || language == LocalizedText.Language.TraditionalChinese;
         }
 
         public static TMP_FontAsset FindFont(string name)

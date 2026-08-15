@@ -23,13 +23,16 @@ namespace ItemSpawnerEnhancement
         }
 
         /// <summary>
-        /// 在 ItemSpawner 的 ItemSpawnerWindow.Initialize 完成后接管 UI：
-        /// 搜索框移到顶部居中放大、增加分类按钮条、本地化名称与中文/拼音搜索。
+        /// 接管 ItemSpawner 的 ItemSpawnerWindow.Initialize：
+        /// Prefix 在原始 body 之前完成 UI 接管——原始 Initialize 方法体内先调用 RefreshEntries，
+        /// 其 Prefix 检查 UiEnhancer.SetupSucceeded；若放在 Postfix 才 Setup，首窗口总会先跑一遍原逻辑
+        /// （双重填充），且静态标志跨窗口陈旧。
+        /// Postfix 仅销毁原始 body 新增的 SearchScript（接管成功后原搜索逻辑已冗余）。
         /// </summary>
         [HarmonyPatch(typeof(ItemSpawner.ItemSpawnerWindow), nameof(ItemSpawner.ItemSpawnerWindow.Initialize))]
         private static class Patch_Initialize
         {
-            private static void Postfix(ItemSpawner.ItemSpawnerWindow __instance)
+            private static void Prefix(ItemSpawner.ItemSpawnerWindow __instance)
             {
                 try
                 {
@@ -37,7 +40,21 @@ namespace ItemSpawnerEnhancement
                 }
                 catch (System.Exception ex)
                 {
-                    Log.LogError("ItemSpawner Enhancement failed during Initialize postfix: " + ex);
+                    Log.LogError("ItemSpawner Enhancement failed during Initialize prefix: " + ex);
+                }
+            }
+
+            private static void Postfix(ItemSpawner.ItemSpawnerWindow __instance)
+            {
+                // 仅当接管成功才销毁原 SearchScript；Setup 失败时保留原搜索逻辑作为回退。
+                if (!UiEnhancer.SetupSucceeded)
+                {
+                    return;
+                }
+                ItemSpawner.SearchScript old = __instance.GetComponent<ItemSpawner.SearchScript>();
+                if (old != null)
+                {
+                    UnityEngine.Object.Destroy(old);
                 }
             }
         }
@@ -83,17 +100,14 @@ namespace ItemSpawnerEnhancement
                     {
                         Log.LogError("ItemSpawnerPlus: WarpOnThrow.OnItemThrown 反射失败，委托未移除，可能泄漏");
                     }
-                    // 等效清理 2：调用基类 MonoBehaviourPunCallbacks.OnDisable
-                    MethodInfo baseOnDisable = typeof(MonoBehaviourPunCallbacks).GetMethod("OnDisable",
-                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                    if (baseOnDisable != null)
-                    {
-                        baseOnDisable.Invoke(__instance, null);
-                    }
-                    else
-                    {
-                        Log.LogError("ItemSpawnerPlus: MonoBehaviourPunCallbacks.OnDisable 反射失败，基类清理被跳过");
-                    }
+                    // 等效清理 2：调用与基类 OnDisable 方法体完全等效的静态方法。
+                    // 绝不要用 MethodInfo.Invoke 调用自身已被 Harmony patch 的虚方法：
+                    // MonoBehaviourPunCallbacks.OnDisable 是 virtual，MethodInfo.Invoke 做虚分派
+                    // 会分派到已被 patch 的 WarpOnThrow.OnDisable override，导致
+                    // Prefix -> Invoke -> OnDisable -> Prefix 无限递归、栈溢出硬崩溃。
+                    // PhotonNetwork.RemoveCallbackTarget 是 public static（参数 object），
+                    // 与基类 OnDisable 方法体完全等效，无虚分派风险。
+                    PhotonNetwork.RemoveCallbackTarget(__instance);
                 }
                 catch (Exception ex)
                 {

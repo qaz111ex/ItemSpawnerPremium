@@ -49,18 +49,7 @@ namespace ItemSpawnerEnhancement
             }
             TMP_InputField searchInput = searchGo.GetComponent<TMP_InputField>();
 
-            // 1. 移除原 SearchScript 并清空搜索框上的旧监听（原逻辑只做英文前缀匹配）
-            ItemSpawner.SearchScript oldSearch = window.GetComponent<ItemSpawner.SearchScript>();
-            if (oldSearch != null)
-            {
-                UnityEngine.Object.Destroy(oldSearch);
-            }
-            if (searchInput != null)
-            {
-                searchInput.onValueChanged.RemoveAllListeners();
-            }
-
-            // 2. 搜索框：顶部居中、加宽加高
+            // 1. 搜索框：顶部居中、加宽加高
             RectTransform panelRt = scrollViewGo.parent as RectTransform; // Panel
             RectTransform sbRt = searchGo as RectTransform;
             sbRt.anchorMin = new Vector2(0.5f, 1f);
@@ -70,16 +59,16 @@ namespace ItemSpawnerEnhancement
             float panelWidth = (panelRt != null) ? panelRt.rect.width : 900f;
             sbRt.sizeDelta = new Vector2(panelWidth * 0.86f, 38f);
 
-            // 3. Scroll View 下移并收窄高度，为顶部搜索框 + 分类条让位。
+            // 2. Scroll View 下移并收窄高度，为顶部搜索框 + 分类条让位。
             //    分类条高 44 位于 56~100px，Scroll View 顶部缩进 = 37 + 130/2 = 102px。
             RectTransform svRt = scrollViewGo as RectTransform;
             svRt.anchoredPosition = new Vector2(0f, -37f);
             svRt.sizeDelta = new Vector2(-26f, -130f);
 
-            // 4. 分类按钮条（位于搜索框与滚动列表之间）
+            // 3. 分类按钮条（位于搜索框与滚动列表之间）
             Transform bar = CreateCategoryBar(panelRt, sbRt);
 
-            // 5. 挂载列表视图（若窗口重开则复用）
+            // 4. 挂载列表视图（若窗口重开则复用）
             if (_view != null)
             {
                 _view.Stop();
@@ -91,6 +80,21 @@ namespace ItemSpawnerEnhancement
             }
             _view.Init(contentGo, template, searchInput, OnMajorSelected);
 
+            // 5. 全部接管步骤（搜索框布局、Scroll View、分类条、ItemListView.Init）成功之后，
+            //    才移除原 SearchScript 并清空搜索框旧监听（原逻辑只做英文前缀匹配）。
+            //    若中途失败（异常或节点缺失），原逻辑及其搜索保持完整，避免"列表由原逻辑填充但搜索/分类残废"的半坏状态。
+            //    注意：清空会连同 ItemListView 刚挂接的监听一起移除，因此需重新挂接。
+            ItemSpawner.SearchScript oldSearch = window.GetComponent<ItemSpawner.SearchScript>();
+            if (oldSearch != null)
+            {
+                UnityEngine.Object.Destroy(oldSearch);
+            }
+            if (searchInput != null)
+            {
+                searchInput.onValueChanged.RemoveAllListeners();
+                _view.SubscribeSearchInput();
+            }
+
             // 6. 刷新分类按钮选中态
             OnMajorSelected(MajorCategory.All);
             SetupSucceeded = true;
@@ -99,7 +103,7 @@ namespace ItemSpawnerEnhancement
         /// <summary>语言切换时刷新分类按钮的文字与字体（按钮 label 在创建时按当时语言固化）。</summary>
         internal static void RefreshButtonLabels()
         {
-            TMP_FontAsset font = ItemListView.IsChineseLanguage() ? ItemListView.GetGameBaseFont() : ItemListView.FindFont("DarumaDropOne-Regular SDF");
+            TMP_FontAsset font = ItemListView.NeedsCjkFont() ? ItemListView.GetGameBaseFont() : ItemListView.FindFont("DarumaDropOne-Regular SDF");
             for (int i = 0; i < _categoryButtonLabels.Count; i++)
             {
                 TextMeshProUGUI label = _categoryButtonLabels[i];
@@ -141,7 +145,7 @@ namespace ItemSpawnerEnhancement
             layout.childForceExpandWidth = true;
             layout.childForceExpandHeight = false;
 
-            TMP_FontAsset font = ItemListView.IsChineseLanguage() ? ItemListView.GetGameBaseFont() : ItemListView.FindFont("DarumaDropOne-Regular SDF");
+            TMP_FontAsset font = ItemListView.NeedsCjkFont() ? ItemListView.GetGameBaseFont() : ItemListView.FindFont("DarumaDropOne-Regular SDF");
 
             _categoryButtons.Clear();
             _categoryButtonLabels.Clear();
