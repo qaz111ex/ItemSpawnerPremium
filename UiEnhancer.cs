@@ -60,10 +60,10 @@ namespace ItemSpawnerEnhancement
             sbRt.sizeDelta = new Vector2(panelWidth * 0.86f, 38f);
 
             // 2. Scroll View 下移并收窄高度，为顶部搜索框 + 分类条让位。
-            //    分类条高 44 位于 56~100px，Scroll View 顶部缩进 = 37 + 130/2 = 102px。
+            //    分类条高 56 位于 58~114px，Scroll View 顶部缩进 = 44 + 144/2 = 116px。
             RectTransform svRt = scrollViewGo as RectTransform;
-            svRt.anchoredPosition = new Vector2(0f, -37f);
-            svRt.sizeDelta = new Vector2(-26f, -130f);
+            svRt.anchoredPosition = new Vector2(0f, -44f);
+            svRt.sizeDelta = new Vector2(-26f, -144f);
 
             // 3. 分类按钮条（位于搜索框与滚动列表之间）
             Transform bar = CreateCategoryBar(panelRt, sbRt);
@@ -127,8 +127,8 @@ namespace ItemSpawnerEnhancement
             barRt.anchorMin = new Vector2(0.5f, 1f);
             barRt.anchorMax = new Vector2(0.5f, 1f);
             barRt.pivot = new Vector2(0.5f, 1f);
-            barRt.anchoredPosition = new Vector2(0f, -56f);
-            barRt.sizeDelta = new Vector2(panel.rect.width * 0.90f, 44f);
+            barRt.anchoredPosition = new Vector2(0f, -58f);
+            barRt.sizeDelta = new Vector2(panel.rect.width * 0.90f, 56f);
             // 置于同级最上层（SetAsLastSibling），确保分类按钮不被 Scroll View 遮挡、可点击
             barRt.SetAsLastSibling();
 
@@ -162,7 +162,7 @@ namespace ItemSpawnerEnhancement
             GameObject go = new GameObject("CatButton", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
             RectTransform rt = go.GetComponent<RectTransform>();
             rt.SetParent(parent, false);
-            rt.sizeDelta = new Vector2(0f, 44f); // 宽度由布局均分，高度加大保证可点击区域
+            rt.sizeDelta = new Vector2(0f, 56f); // 宽度由布局均分，高度加大保证可点击区域
 
             Image image = go.GetComponent<Image>();
             Sprite sprite = FindSprite("UISprite");
@@ -189,7 +189,7 @@ namespace ItemSpawnerEnhancement
             trigger.triggers.Add(enter);
             trigger.triggers.Add(exit);
 
-            // 标签（加粗、无描边）
+            // 标签（加粗、白色 + 黑色细描边，保证低对比度下清晰可读）
             GameObject labelGo = new GameObject("Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
             labelGo.transform.SetParent(go.transform, false);
             RectTransform lrt = labelGo.GetComponent<RectTransform>();
@@ -203,9 +203,10 @@ namespace ItemSpawnerEnhancement
             text.fontSize = 19f;
             text.fontStyle = FontStyles.Bold;
             text.alignment = TextAlignmentOptions.Center;
-            text.color = new Color(0.82f, 0.82f, 0.82f, 1f); // 浅灰色文字
+            text.color = Color.white;
             text.raycastTarget = false; // 文字不拦截点击，保证整块按钮区域可点
-            text.outlineWidth = 0f;     // 无描边
+            text.outlineWidth = 0.14f;  // 黑色细描边提升对比度
+            text.outlineColor = Color.black;
             text.text = ItemCatalog.GetMajorLabel(major);
 
             _categoryButtons.Add(button);
