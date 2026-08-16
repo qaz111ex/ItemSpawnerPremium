@@ -11,7 +11,7 @@ namespace ItemSpawnerEnhancement
     /// <summary>
     /// UI 增强：
     /// 1. 搜索框移到模组菜单顶部居中并扩大；
-    /// 2. 搜索框下方新增横向分类按钮条（全部/工具/食物/神秘/装备/消耗品/场景），贴合游戏原生暖棕+暖卡其边框的卡片式按钮，奶油白文字，悬停提亮、选中反色为暖卡其；
+    /// 2. 搜索框下方新增横向分类按钮条（全部/工具/食物/神秘/装备/消耗品/场景），浅色暖卡纸风：浅米棕底 + 浅暖棕描边 + 深暖棕文字，悬停提亮、选中变最浅的暖黄高亮；
     /// 3. 挂载 ItemListView（本地化显示名 + 中文/拼音搜索 + 多标签分类过滤与排序）。
     /// </summary>
     public static class UiEnhancer
@@ -23,16 +23,15 @@ namespace ItemSpawnerEnhancement
         private static readonly List<TextMeshProUGUI> _categoryButtonLabels = new List<TextMeshProUGUI>();
         private static ItemListView _view;
 
-        // 配色取自 PEAK 游戏原生 UI：
-        //   - 填充深暖棕 = PeakButton / PeakHorizontalTabs 的 backgroundColor (0.1792, 0.1253, 0.0905)；
-        //   - 边框/选中暖卡其 = PeakMenuButton.SetBorderColor 与 ItemBrowser 复刻的边框色 (0.6, 0.52, 0.42)；
-        //   - 文字奶油白 = ItemBrowser 复刻的游戏按钮文字色 (0.95, 0.92, 0.86)。
-        private static readonly Color ColorIdle = new Color(0.18f, 0.125f, 0.09f, 1f);       // 默认填充：游戏原生深暖棕
-        private static readonly Color ColorHover = new Color(0.27f, 0.20f, 0.15f, 1f);       // 悬停：提亮的暖棕
-        private static readonly Color ColorSelected = new Color(0.60f, 0.52f, 0.42f, 1f);    // 选中：暖卡其（游戏强调色）
-        private static readonly Color ColorBorder = new Color(0.62f, 0.54f, 0.44f, 0.55f);   // 按钮描边：暖卡其半透明
-        private static readonly Color ColorTextIdle = new Color(0.95f, 0.92f, 0.86f, 1f);    // 默认/悬停文字：奶油白
-        private static readonly Color ColorTextSelected = new Color(0.16f, 0.11f, 0.08f, 1f); // 选中文字：深棕（暖卡其填充上清晰）
+        // 配色方案：浅色系暖"卡纸"风（应用户反馈，把原深暖棕/深卡其整体调浅）。
+        // 保留 PEAK 户外暖色基调（米棕 → 奶油 → 浅暖黄方向），不采用冷色或纯白刺眼。
+        // 浅底必须配深字：三态文字统一走深暖棕，保证高对比可读。
+        private static readonly Color ColorIdle = new Color(0.82f, 0.75f, 0.63f, 1f);        // 默认填充：浅暖米棕（卡纸基色）
+        private static readonly Color ColorHover = new Color(0.90f, 0.84f, 0.74f, 1f);       // 悬停：更亮的奶油米黄（比默认更亮，明显抬升）
+        private static readonly Color ColorSelected = new Color(0.96f, 0.91f, 0.81f, 1f);    // 选中：最浅的暖黄高亮（三态中最亮，突出选中）
+        private static readonly Color ColorBorder = new Color(0.70f, 0.60f, 0.48f, 0.6f);    // 按钮描边：浅暖棕（比各填充略深以勾边，明显浅于原卡其）
+        private static readonly Color ColorTextIdle = new Color(0.28f, 0.21f, 0.14f, 1f);    // 默认/悬停文字：深暖棕（浅色底上高对比）
+        private static readonly Color ColorTextSelected = new Color(0.22f, 0.16f, 0.10f, 1f); // 选中文字：更深的暖棕（最浅选中底上更稳）
 
         public static void Setup(ItemSpawner.ItemSpawnerWindow window)
         {
@@ -180,14 +179,14 @@ namespace ItemSpawnerEnhancement
             // 不使用 UISprite：该 sprite 为圆角且带投影纹理，不透明填充时暴露圆角与像素阴影。
             // 置空 sprite 后 Image 渲染为纯直角矩形，暖卡其描边由下方 Outline 组件提供。
             image.sprite = null;
-            image.color = ColorIdle; // 默认深暖棕填充（悬停/选中由 EventTrigger 与 RefreshButtonColor 统一管理）
+            image.color = ColorIdle; // 默认浅暖米棕填充（悬停/选中由 EventTrigger 与 RefreshButtonColor 统一管理）
             image.raycastTarget = true;
 
             Button button = go.GetComponent<Button>();
             button.targetGraphic = image;
             button.transition = Selectable.Transition.None; // 颜色由代码统一管理
 
-            // 暖卡其细描边：贴合游戏卡片/卡纸质感（替换原先的黑色描边，黑色描边会让文字边缘显得脏且与深棕填充冲突）
+            // 浅暖棕细描边：浅色卡纸的勾边（比填充略深以界定边缘，替换原先的深卡其描边）
             Outline outline = go.AddComponent<Outline>();
             outline.effectColor = ColorBorder;
             outline.effectDistance = new Vector2(1f, 1f);
@@ -204,7 +203,7 @@ namespace ItemSpawnerEnhancement
             trigger.triggers.Add(enter);
             trigger.triggers.Add(exit);
 
-            // 标签（奶油白文字、无描边、无加粗，深暖棕底上高对比 = 锐利）
+            // 标签（深暖棕文字、无描边、无加粗，浅色底上高对比 = 锐利）
             GameObject labelGo = new GameObject("Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
             labelGo.transform.SetParent(go.transform, false);
             RectTransform lrt = labelGo.GetComponent<RectTransform>();
@@ -216,7 +215,7 @@ namespace ItemSpawnerEnhancement
             TextMeshProUGUI text = labelGo.GetComponent<TextMeshProUGUI>();
             text.font = font;
             // 清晰锐利方案：不再用 Bold + 黑色 SDF 描边（二者会把字形边缘做软/膨胀，是模糊主因）。
-            // 改用「奶油白文字 × 深暖棕底」的高对比 + 游戏原生的全大写 + 自适应字号（长英文标签自动缩小到 16，不裁剪）。
+            // 改用「深暖棕文字 × 浅米棕底」的高对比 + 游戏原生的全大写 + 自适应字号（长英文标签自动缩小到 16，不裁剪）。
             text.enableAutoSizing = true;
             text.fontSizeMin = 16f;
             text.fontSizeMax = 22f;
@@ -247,7 +246,7 @@ namespace ItemSpawnerEnhancement
             {
                 image.color = selected ? ColorSelected : ColorIdle;
             }
-            // 选中态文字反色为深棕，保证暖卡其填充上仍清晰可读（悬停态文字保持奶油白，两种深色底上均可读）
+            // 三态文字均为深暖棕，保证浅色底上清晰可读；选中文字略深一档，配合最浅的选中底更稳
             if (index < _categoryButtonLabels.Count)
             {
                 TextMeshProUGUI label = _categoryButtonLabels[index];
