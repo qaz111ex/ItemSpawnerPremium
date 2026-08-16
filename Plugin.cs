@@ -20,6 +20,11 @@ namespace ItemSpawnerEnhancement
             Harmony harmony = new Harmony("com.itemspawnerplus.ItemSpawnerPlus");
             harmony.PatchAll(Assembly.GetExecutingAssembly());
             Log.LogInfo("ItemSpawner Enhancement loaded!");
+
+            // 面板预热：在加载阶段提前执行一次 UiEnhancer.Setup，消除首次 F5 卡顿。
+            GameObject warmupGo = new GameObject("ItemSpawnerPlusWarmup");
+            UnityEngine.Object.DontDestroyOnLoad(warmupGo);
+            warmupGo.AddComponent<Warmup>();
         }
 
         /// <summary>
@@ -34,6 +39,10 @@ namespace ItemSpawnerEnhancement
         {
             private static void Prefix(ItemSpawner.ItemSpawnerWindow __instance)
             {
+                if (UiEnhancer.SetupSucceeded)
+                {
+                    return; // 已预热，跳过重复 Setup
+                }
                 try
                 {
                     UiEnhancer.Setup(__instance);
