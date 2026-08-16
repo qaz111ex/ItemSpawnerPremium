@@ -39,9 +39,11 @@ namespace ItemSpawnerEnhancement
         {
             private static void Prefix(ItemSpawner.ItemSpawnerWindow __instance)
             {
-                if (UiEnhancer.SetupSucceeded)
+                // 实例级判断：该窗口是否已成功 Setup（有 ItemListView 组件）。
+                // 不用 static SetupSucceeded（跨场景窗口销毁重建后 static 会陈旧，导致新窗口跳过 Setup → 空面板）。
+                if (__instance.GetComponent<ItemListView>() != null)
                 {
-                    return; // 已预热，跳过重复 Setup
+                    return;
                 }
                 try
                 {
@@ -55,8 +57,8 @@ namespace ItemSpawnerEnhancement
 
             private static void Postfix(ItemSpawner.ItemSpawnerWindow __instance)
             {
-                // 仅当接管成功才销毁原 SearchScript；Setup 失败时保留原搜索逻辑作为回退。
-                if (!UiEnhancer.SetupSucceeded)
+                // 仅当接管成功（窗口上有 ItemListView）才销毁原 SearchScript；Setup 失败时保留原搜索逻辑作为回退。
+                if (__instance.GetComponent<ItemListView>() == null)
                 {
                     return;
                 }
@@ -75,9 +77,10 @@ namespace ItemSpawnerEnhancement
         [HarmonyPatch(typeof(ItemSpawner.ItemSpawnerWindow), nameof(ItemSpawner.ItemSpawnerWindow.RefreshEntries))]
         private static class Patch_RefreshEntries
         {
-            private static bool Prefix()
+            private static bool Prefix(ItemSpawner.ItemSpawnerWindow __instance)
             {
-                return !UiEnhancer.SetupSucceeded;
+                // 该窗口已 Setup（有 ItemListView）则跳过原 RefreshEntries；否则走原逻辑兜底
+                return __instance.GetComponent<ItemListView>() == null;
             }
         }
 

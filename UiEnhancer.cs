@@ -41,6 +41,12 @@ namespace ItemSpawnerEnhancement
                 Plugin.Log.LogError("ItemSpawnerPlus: Setup abort, window is null.");
                 return;
             }
+            // 幂等：该窗口已 Setup（已有 ItemListView），避免重复创建分类条/条目
+            if (window.GetComponent<ItemListView>() != null)
+            {
+                SetupSucceeded = true;
+                return;
+            }
             Transform canvas = window.panel.transform;
 
             Transform searchGo = canvas.FindChildRecursive("SearchBar");
@@ -85,7 +91,20 @@ namespace ItemSpawnerEnhancement
             {
                 _view = window.gameObject.AddComponent<ItemListView>();
             }
-            _view.Init(contentGo, template, searchInput, OnMajorSelected);
+            try
+            {
+                _view.Init(contentGo, template, searchInput, OnMajorSelected);
+            }
+            catch (System.Exception ex)
+            {
+                Plugin.Log.LogError("ItemSpawnerPlus: ItemListView.Init 失败，已回滚: " + ex);
+                if (_view != null)
+                {
+                    UnityEngine.Object.Destroy(_view);
+                    _view = null;
+                }
+                return;
+            }
 
             // 5. 全部接管步骤（搜索框布局、Scroll View、分类条、ItemListView.Init）成功之后，
             //    才移除原 SearchScript 并清空搜索框旧监听（原逻辑只做英文前缀匹配）。

@@ -39,19 +39,19 @@ namespace ItemSpawnerEnhancement
 
         private void TryStartWarmup()
         {
-            // 已预热则直接停止（正常情况不会走到，双保险）
-            if (UiEnhancer.SetupSucceeded)
-            {
-                Destroy(gameObject);
-                return;
-            }
-
             // 1. 窗口实例存在（由原模组在 GUIManager.Start 时创建）
 #pragma warning disable CS0618 // FindObjectOfType 在本游戏运行时仍受支持，且为任务指定 API
             ItemSpawner.ItemSpawnerWindow window = UnityEngine.Object.FindObjectOfType<ItemSpawner.ItemSpawnerWindow>();
 #pragma warning restore CS0618
             if (window == null)
             {
+                return;
+            }
+
+            // 该窗口已 Setup（有 ItemListView）则无需预热
+            if (window.GetComponent<ItemListView>() != null)
+            {
+                Destroy(gameObject);
                 return;
             }
 
