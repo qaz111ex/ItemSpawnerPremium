@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace ItemSpawnerEnhancement
 {
-    [BepInPlugin("com.itemspawnerplus.ItemSpawnerPlus", "ItemSpawnerPlus", "1.1.0")]
+    [BepInPlugin("com.itemspawnerplus.ItemSpawnerPlus", "ItemSpawnerPlus", "1.2.0")]
     [BepInDependency("com.quackandcheese.ItemSpawner")]
     public class Plugin : BaseUnityPlugin
     {
