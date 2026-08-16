@@ -26,7 +26,7 @@ namespace ItemSpawnerEnhancement
         }
 
         /// <summary>Init 是否已成功执行（成功末尾置 true）。判断"已成功 Setup"的可靠依据，不依赖 Destroy 延迟语义。</summary>
-        public bool Initialized;
+        [NonSerialized] public bool Initialized;
 
         private Transform _content;
         private Transform _template;

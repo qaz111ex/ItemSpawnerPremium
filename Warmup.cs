@@ -108,6 +108,8 @@ namespace ItemSpawnerEnhancement
             catch (Exception ex)
             {
                 Plugin.Log.LogWarning("ItemSpawnerPlus: 渲染 priming 启动中断: " + ex.Message);
+                // 若 SetActive(true) 已成功而 ForceUpdateCanvases 抛异常，恢复 panel 隐藏，避免面板残留 active
+                try { window.panel.SetActive(false); } catch { }
                 _primingRunning = false;
                 yield break;
             }
