@@ -48,8 +48,9 @@ namespace ItemSpawnerEnhancement
                 return;
             }
 
-            // 该窗口已 Setup（有 ItemListView）则无需预热
-            if (window.GetComponent<ItemListView>() != null)
+            // 该窗口已成功 Setup（ItemListView.Initialized）则无需预热
+            ItemListView v = window.GetComponent<ItemListView>();
+            if (v != null && v.Initialized)
             {
                 Destroy(gameObject);
                 return;
@@ -94,14 +95,30 @@ namespace ItemSpawnerEnhancement
             if (Character.localCharacter == null)
             {
                 Stopwatch sw2 = Stopwatch.StartNew();
-                window.panel.SetActive(true);
-                Canvas.ForceUpdateCanvases(); // 同步构建 mesh + TMP 图集
+                try
+                {
+                    window.panel.SetActive(true);
+                    Canvas.ForceUpdateCanvases(); // 同步构建 mesh + TMP 图集
+                }
+                catch (Exception ex)
+                {
+                    // 跨场景时 window 可能已被销毁，导致协程中断；此处仅告警，不影响后续清理
+                    Plugin.Log.LogWarning("ItemSpawnerPlus: 渲染 priming 启动中断: " + ex.Message);
+                }
                 yield return null;            // 本帧末尾真实渲染 → icon 纹理 GPU 上传
                 yield return null;            // 再一帧，让 LayoutGroup 稳定
-                window.panel.SetActive(false);
-                Canvas.ForceUpdateCanvases();
-                sw2.Stop();
-                Plugin.Log.LogInfo("ItemSpawnerPlus: 渲染 priming 完成, 耗时 " + sw2.ElapsedMilliseconds + "ms");
+                try
+                {
+                    window.panel.SetActive(false);
+                    Canvas.ForceUpdateCanvases();
+                    sw2.Stop();
+                    Plugin.Log.LogInfo("ItemSpawnerPlus: 渲染 priming 完成, 耗时 " + sw2.ElapsedMilliseconds + "ms");
+                }
+                catch (Exception ex)
+                {
+                    // 跨场景时 window 可能已被销毁，导致协程中断；此处仅告警，不影响后续清理
+                    Plugin.Log.LogWarning("ItemSpawnerPlus: 渲染 priming 关闭中断: " + ex.Message);
+                }
             }
             else
             {

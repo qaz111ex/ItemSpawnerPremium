@@ -25,6 +25,9 @@ namespace ItemSpawnerEnhancement
             public ItemCategory primary;    // 主分类（用于排序）
         }
 
+        /// <summary>Init 是否已成功执行（成功末尾置 true）。判断"已成功 Setup"的可靠依据，不依赖 Destroy 延迟语义。</summary>
+        public bool Initialized;
+
         private Transform _content;
         private Transform _template;
         private TMP_InputField _searchInput;
@@ -64,6 +67,7 @@ namespace ItemSpawnerEnhancement
 
             RefreshFonts();
             Rebuild();
+            Initialized = true;
         }
 
         /// <summary>挂接搜索输入监听（无条件强制重挂接，幂等）；UiEnhancer.Setup 清空旧监听后调用以恢复。</summary>

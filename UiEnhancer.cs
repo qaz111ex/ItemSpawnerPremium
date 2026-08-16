@@ -16,9 +16,6 @@ namespace ItemSpawnerEnhancement
     /// </summary>
     public static class UiEnhancer
     {
-        /// <summary>Setup 是否成功接管 UI；Patch_RefreshEntries 依赖此标志决定是否禁用原逻辑。</summary>
-        internal static bool SetupSucceeded;
-
         private static readonly List<Button> _categoryButtons = new List<Button>();
         private static readonly List<TextMeshProUGUI> _categoryButtonLabels = new List<TextMeshProUGUI>();
         private static ItemListView _view;
@@ -35,16 +32,16 @@ namespace ItemSpawnerEnhancement
 
         public static void Setup(ItemSpawner.ItemSpawnerWindow window)
         {
-            SetupSucceeded = false;
             if (window == null)
             {
                 Plugin.Log.LogError("ItemSpawnerPlus: Setup abort, window is null.");
                 return;
             }
-            // 幂等：该窗口已 Setup（已有 ItemListView），避免重复创建分类条/条目
-            if (window.GetComponent<ItemListView>() != null)
+            // 幂等：该窗口已成功 Setup（ItemListView.Initialized），避免重复创建分类条/条目。
+            // 仅当 Init 成功置位后才视为已接管；未 Initialized 的残留 view 会继续走下方复用分支。
+            ItemListView existing = window.GetComponent<ItemListView>();
+            if (existing != null && existing.Initialized)
             {
-                SetupSucceeded = true;
                 return;
             }
             Transform canvas = window.panel.transform;
@@ -81,12 +78,8 @@ namespace ItemSpawnerEnhancement
             // 3. 分类按钮条（位于搜索框与滚动列表之间，高 50，占 68~118px）
             Transform bar = CreateCategoryBar(panelRt, sbRt);
 
-            // 4. 挂载列表视图（若窗口重开则复用）
-            if (_view != null)
-            {
-                _view.Stop();
-            }
-            _view = window.gameObject.GetComponent<ItemListView>();
+            // 4. 挂载列表视图（若窗口重开则复用；复用未 Initialized 的残留 view 而非无条件 AddComponent）
+            _view = existing; // 可能是未 Initialized 的残留（上次 Init 失败）
             if (_view == null)
             {
                 _view = window.gameObject.AddComponent<ItemListView>();
@@ -100,6 +93,7 @@ namespace ItemSpawnerEnhancement
                 Plugin.Log.LogError("ItemSpawnerPlus: ItemListView.Init 失败，已回滚: " + ex);
                 if (_view != null)
                 {
+                    _view.Stop();  // 退订搜索监听 + 语言事件（OnDestroy 也会退订语言，这里显式清理）
                     UnityEngine.Object.Destroy(_view);
                     _view = null;
                 }
@@ -123,7 +117,6 @@ namespace ItemSpawnerEnhancement
 
             // 6. 刷新分类按钮选中态
             OnMajorSelected(MajorCategory.All);
-            SetupSucceeded = true;
         }
 
         /// <summary>语言切换时刷新分类按钮的文字与字体（按钮 label 在创建时按当时语言固化）。</summary>

@@ -14,6 +14,13 @@ namespace ItemSpawnerEnhancement
     {
         internal static ManualLogSource Log { get; private set; }
 
+        /// <summary>判断窗口是否已成功 Setup（挂有 ItemListView 且其 Init 已成功执行）。</summary>
+        private static bool IsWindowSetup(ItemSpawner.ItemSpawnerWindow window)
+        {
+            ItemListView view = window.GetComponent<ItemListView>();
+            return view != null && view.Initialized;
+        }
+
         private void Awake()
         {
             Log = Logger;
@@ -30,8 +37,8 @@ namespace ItemSpawnerEnhancement
         /// <summary>
         /// 接管 ItemSpawner 的 ItemSpawnerWindow.Initialize：
         /// Prefix 在原始 body 之前完成 UI 接管——原始 Initialize 方法体内先调用 RefreshEntries，
-        /// 其 Prefix 检查 UiEnhancer.SetupSucceeded；若放在 Postfix 才 Setup，首窗口总会先跑一遍原逻辑
-        /// （双重填充），且静态标志跨窗口陈旧。
+        /// 其 Prefix 检查窗口是否已成功 Setup（ItemListView.Initialized）；若放在 Postfix 才 Setup，
+        /// 首窗口总会先跑一遍原逻辑（双重填充）。
         /// Postfix 仅销毁原始 body 新增的 SearchScript（接管成功后原搜索逻辑已冗余）。
         /// </summary>
         [HarmonyPatch(typeof(ItemSpawner.ItemSpawnerWindow), nameof(ItemSpawner.ItemSpawnerWindow.Initialize))]
@@ -39,9 +46,10 @@ namespace ItemSpawnerEnhancement
         {
             private static void Prefix(ItemSpawner.ItemSpawnerWindow __instance)
             {
-                // 实例级判断：该窗口是否已成功 Setup（有 ItemListView 组件）。
-                // 不用 static SetupSucceeded（跨场景窗口销毁重建后 static 会陈旧，导致新窗口跳过 Setup → 空面板）。
-                if (__instance.GetComponent<ItemListView>() != null)
+                // 实例级判断：该窗口是否已成功 Setup（ItemListView.Initialized）。
+                // 不依赖 Destroy 延迟语义（Init 失败回滚的 Destroy 同帧内 GetComponent 仍返回残留组件，
+                // 会误判"已 Setup"），因此以 Initialized 标志为可靠依据。
+                if (IsWindowSetup(__instance))
                 {
                     return;
                 }
@@ -57,8 +65,8 @@ namespace ItemSpawnerEnhancement
 
             private static void Postfix(ItemSpawner.ItemSpawnerWindow __instance)
             {
-                // 仅当接管成功（窗口上有 ItemListView）才销毁原 SearchScript；Setup 失败时保留原搜索逻辑作为回退。
-                if (__instance.GetComponent<ItemListView>() == null)
+                // 仅当接管成功（ItemListView.Initialized）才销毁原 SearchScript；Setup 失败时保留原搜索逻辑作为回退。
+                if (!IsWindowSetup(__instance))
                 {
                     return;
                 }
@@ -71,7 +79,7 @@ namespace ItemSpawnerEnhancement
         }
 
         /// <summary>
-        /// 接管 RefreshEntries：仅当 UiEnhancer.Setup 成功接管 UI 后才禁用原逻辑，
+        /// 接管 RefreshEntries：仅当窗口已成功 Setup（ItemListView.Initialized）后才禁用原逻辑，
         /// 否则回退到原模组的填充逻辑，避免 Setup 失败时窗口永久空白。
         /// </summary>
         [HarmonyPatch(typeof(ItemSpawner.ItemSpawnerWindow), nameof(ItemSpawner.ItemSpawnerWindow.RefreshEntries))]
@@ -79,8 +87,8 @@ namespace ItemSpawnerEnhancement
         {
             private static bool Prefix(ItemSpawner.ItemSpawnerWindow __instance)
             {
-                // 该窗口已 Setup（有 ItemListView）则跳过原 RefreshEntries；否则走原逻辑兜底
-                return __instance.GetComponent<ItemListView>() == null;
+                // 该窗口已成功 Setup（ItemListView.Initialized）则跳过原 RefreshEntries；否则走原逻辑兜底
+                return !IsWindowSetup(__instance);
             }
         }
 
