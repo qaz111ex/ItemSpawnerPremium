@@ -11,7 +11,7 @@ namespace ItemSpawnerEnhancement
     /// <summary>
     /// UI 增强：
     /// 1. 搜索框移到模组菜单顶部居中并扩大；
-    /// 2. 搜索框下方新增横向分类按钮条（全部/工具/食物/神秘/装备/消耗品/场景），白色矩形+黑色描边、黑字，悬停变灰、选中变黄；
+    /// 2. 搜索框下方新增横向分类按钮条（全部/工具/食物/神秘/装备/消耗品/场景），贴合游戏原生暖棕+暖卡其边框的卡片式按钮，奶油白文字，悬停提亮、选中反色为暖卡其；
     /// 3. 挂载 ItemListView（本地化显示名 + 中文/拼音搜索 + 多标签分类过滤与排序）。
     /// </summary>
     public static class UiEnhancer
@@ -23,9 +23,16 @@ namespace ItemSpawnerEnhancement
         private static readonly List<TextMeshProUGUI> _categoryButtonLabels = new List<TextMeshProUGUI>();
         private static ItemListView _view;
 
-        private static readonly Color ColorIdle = new Color(1f, 1f, 1f, 1f);        // 默认白色填充
-        private static readonly Color ColorHover = new Color(0.82f, 0.82f, 0.82f, 1f); // 悬停灰色
-        private static readonly Color ColorSelected = new Color(0.92f, 0.72f, 0.20f, 1f); // 选中黄色
+        // 配色取自 PEAK 游戏原生 UI：
+        //   - 填充深暖棕 = PeakButton / PeakHorizontalTabs 的 backgroundColor (0.1792, 0.1253, 0.0905)；
+        //   - 边框/选中暖卡其 = PeakMenuButton.SetBorderColor 与 ItemBrowser 复刻的边框色 (0.6, 0.52, 0.42)；
+        //   - 文字奶油白 = ItemBrowser 复刻的游戏按钮文字色 (0.95, 0.92, 0.86)。
+        private static readonly Color ColorIdle = new Color(0.18f, 0.125f, 0.09f, 1f);       // 默认填充：游戏原生深暖棕
+        private static readonly Color ColorHover = new Color(0.27f, 0.20f, 0.15f, 1f);       // 悬停：提亮的暖棕
+        private static readonly Color ColorSelected = new Color(0.60f, 0.52f, 0.42f, 1f);    // 选中：暖卡其（游戏强调色）
+        private static readonly Color ColorBorder = new Color(0.62f, 0.54f, 0.44f, 0.55f);   // 按钮描边：暖卡其半透明
+        private static readonly Color ColorTextIdle = new Color(0.95f, 0.92f, 0.86f, 1f);    // 默认/悬停文字：奶油白
+        private static readonly Color ColorTextSelected = new Color(0.16f, 0.11f, 0.08f, 1f); // 选中文字：深棕（暖卡其填充上清晰）
 
         public static void Setup(ItemSpawner.ItemSpawnerWindow window)
         {
@@ -171,24 +178,24 @@ namespace ItemSpawnerEnhancement
 
             Image image = go.GetComponent<Image>();
             // 不使用 UISprite：该 sprite 为圆角且带投影纹理，不透明填充时暴露圆角与像素阴影。
-            // 置空 sprite 后 Image 渲染为纯直角矩形，黑色描边由下方 Outline 组件提供。
+            // 置空 sprite 后 Image 渲染为纯直角矩形，暖卡其描边由下方 Outline 组件提供。
             image.sprite = null;
-            image.color = ColorIdle; // 默认白色填充（悬停变灰、选中变黄由 EventTrigger 统一管理）
+            image.color = ColorIdle; // 默认深暖棕填充（悬停/选中由 EventTrigger 与 RefreshButtonColor 统一管理）
             image.raycastTarget = true;
 
             Button button = go.GetComponent<Button>();
             button.targetGraphic = image;
             button.transition = Selectable.Transition.None; // 颜色由代码统一管理
 
-            // 黑色细描边：作用于白色矩形 Image 的四边
+            // 暖卡其细描边：贴合游戏卡片/卡纸质感（替换原先的黑色描边，黑色描边会让文字边缘显得脏且与深棕填充冲突）
             Outline outline = go.AddComponent<Outline>();
-            outline.effectColor = new Color(0f, 0f, 0f, 1f);
-            outline.effectDistance = new Vector2(1f, 1f); // 更细的直角描边，避免任何像素感
+            outline.effectColor = ColorBorder;
+            outline.effectDistance = new Vector2(1f, 1f);
 
             MajorCategory captured = major;
             button.onClick.AddListener(() => OnMajorSelected(captured));
 
-            // 悬停反馈：PointerEnter 变灰，PointerExit 恢复
+            // 悬停反馈：PointerEnter 提亮填充为暖棕，PointerExit 恢复（仅非选中按钮，选中态不被打断）
             EventTrigger trigger = go.AddComponent<EventTrigger>();
             EventTrigger.Entry enter = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
             enter.callback.AddListener(delegate { if ((MajorCategory)_categoryButtons.IndexOf(button) != _currentMajor) image.color = ColorHover; });
@@ -197,7 +204,7 @@ namespace ItemSpawnerEnhancement
             trigger.triggers.Add(enter);
             trigger.triggers.Add(exit);
 
-            // 标签（加粗、白色文字 + 黑色细描边）
+            // 标签（奶油白文字、无描边、无加粗，深暖棕底上高对比 = 锐利）
             GameObject labelGo = new GameObject("Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
             labelGo.transform.SetParent(go.transform, false);
             RectTransform lrt = labelGo.GetComponent<RectTransform>();
@@ -208,13 +215,18 @@ namespace ItemSpawnerEnhancement
 
             TextMeshProUGUI text = labelGo.GetComponent<TextMeshProUGUI>();
             text.font = font;
+            // 清晰锐利方案：不再用 Bold + 黑色 SDF 描边（二者会把字形边缘做软/膨胀，是模糊主因）。
+            // 改用「奶油白文字 × 深暖棕底」的高对比 + 游戏原生的全大写 + 自适应字号（长英文标签自动缩小到 16，不裁剪）。
+            text.enableAutoSizing = true;
+            text.fontSizeMin = 16f;
+            text.fontSizeMax = 22f;
             text.fontSize = 22f;
-            text.fontStyle = FontStyles.Bold;
+            text.fontStyle = FontStyles.UpperCase; // 游戏按钮/标签为全大写（中文无大小写，不受影响）
             text.alignment = TextAlignmentOptions.Center;
-            text.color = Color.white;
+            text.textWrappingMode = TextWrappingModes.NoWrap; // 单行标签，避免长词折行
+            text.color = ColorTextIdle;
             text.raycastTarget = false; // 文字不拦截点击，保证整块按钮区域可点
-            text.outlineWidth = 0.14f;  // 白色 + 黑色细描边
-            text.outlineColor = Color.black;
+            text.outlineWidth = 0f;     // 移除黑色细描边（SDF 描边是文字模糊主因）
             text.text = ItemCatalog.GetMajorLabel(major);
 
             _categoryButtons.Add(button);
@@ -229,10 +241,20 @@ namespace ItemSpawnerEnhancement
             {
                 return;
             }
+            bool selected = (MajorCategory)index == _currentMajor;
             Image image = _categoryButtons[index].targetGraphic as Image;
             if (image != null)
             {
-                image.color = ((MajorCategory)index == _currentMajor) ? ColorSelected : ColorIdle;
+                image.color = selected ? ColorSelected : ColorIdle;
+            }
+            // 选中态文字反色为深棕，保证暖卡其填充上仍清晰可读（悬停态文字保持奶油白，两种深色底上均可读）
+            if (index < _categoryButtonLabels.Count)
+            {
+                TextMeshProUGUI label = _categoryButtonLabels[index];
+                if (label != null)
+                {
+                    label.color = selected ? ColorTextSelected : ColorTextIdle;
+                }
             }
         }
 
