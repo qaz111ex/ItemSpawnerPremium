@@ -35,6 +35,8 @@ namespace ItemSpawnerEnhancement
         public override bool closeOnPause => true;
         public override bool closeOnUICancel => true;
         public override bool blocksPlayerInput => false;
+        public override bool selectOnOpen => true;
+        public override Selectable objectToSelectOnOpen => searchInput;
         public override bool autoHideOnClose => true;
         public override GameObject panel => gameObject;
 
@@ -68,7 +70,9 @@ namespace ItemSpawnerEnhancement
             {
                 return;
             }
-            if (!PhotonNetwork.IsConnected || Character.localCharacter == null)
+            if (!PhotonNetwork.IsConnected || Character.localCharacter == null
+                || Character.localCharacter.refs == null
+                || Character.localCharacter.refs.items == null)
             {
                 Plugin.Log.LogWarning("ItemSpawnerPlus: 无法生成 " + item.gameObject.name + "（未连接到房间或本地角色不存在）");
                 return;

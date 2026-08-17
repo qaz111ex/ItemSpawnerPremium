@@ -12,6 +12,12 @@ namespace ItemSpawnerEnhancement
     /// </summary>
     internal sealed class LocalizationCatalog
     {
+        private static readonly string[] KnownLanguageCodes = new string[]
+        {
+            "en", "zh-Hans", "zh-Hant", "ja", "ko", "ru", "uk", "fr", "it", "de",
+            "es-ES", "es-419", "pt-BR", "pl", "tr"
+        };
+
         private readonly Dictionary<string, Dictionary<string, string>> _languages =
             new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
 
@@ -28,6 +34,20 @@ namespace ItemSpawnerEnhancement
                 string languageCode = resourceName.Substring(
                     markerIndex + marker.Length,
                     resourceName.Length - markerIndex - marker.Length - ".json".Length);
+                // 已知语言代码白名单校验：避免 RootNamespace 改名后 marker 静默失配，加载到无关资源
+                bool known = false;
+                for (int i = 0; i < KnownLanguageCodes.Length; i++)
+                {
+                    if (string.Equals(languageCode, KnownLanguageCodes[i], StringComparison.OrdinalIgnoreCase))
+                    {
+                        known = true;
+                        break;
+                    }
+                }
+                if (!known)
+                {
+                    continue;
+                }
                 try
                 {
                     using (Stream stream = assembly.GetManifestResourceStream(resourceName))

@@ -22,7 +22,6 @@ namespace ItemSpawnerEnhancement
         private static ItemListView _view;
         private static Button _favoriteButton;
         private static TextMeshProUGUI _favoriteButtonLabel;
-        private static bool _favoritesOnly;
         private static Texture2D _heartTexture;
 
         // 配色方案：浅色系暖"卡纸"风（应用户反馈，把原深暖棕/深卡其整体调浅）。
@@ -501,7 +500,7 @@ namespace ItemSpawnerEnhancement
             // 悬停反馈（与分类按钮一致，仅非选中态提亮）
             EventTrigger trigger = go.AddComponent<EventTrigger>();
             EventTrigger.Entry enter = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
-            enter.callback.AddListener(delegate { if (!_favoritesOnly) image.color = ColorHover; });
+            enter.callback.AddListener(delegate { if (_view == null || !_view.FavoritesOnly) image.color = ColorHover; });
             EventTrigger.Entry exit = new EventTrigger.Entry { eventID = EventTriggerType.PointerExit };
             exit.callback.AddListener(delegate { RefreshFavoriteButtonColor(); });
             trigger.triggers.Add(enter);
@@ -536,16 +535,18 @@ namespace ItemSpawnerEnhancement
 
         private static void OnFavoriteToggled()
         {
-            _favoritesOnly = !_favoritesOnly;
-            RefreshFavoriteButtonColor();
-            if (_view != null)
+            if (_view == null)
             {
-                _view.SetFavoritesOnly(_favoritesOnly);
+                return;
             }
+            // 以 ItemListView 为唯一数据源：读当前状态翻转后同步回去
+            _view.SetFavoritesOnly(!_view.FavoritesOnly);
+            RefreshFavoriteButtonColor();
         }
 
         private static void RefreshFavoriteButtonColor()
         {
+            bool fav = (_view != null) && _view.FavoritesOnly;
             if (_favoriteButton == null)
             {
                 return;
@@ -553,11 +554,11 @@ namespace ItemSpawnerEnhancement
             Image image = _favoriteButton.targetGraphic as Image;
             if (image != null)
             {
-                image.color = _favoritesOnly ? ColorSelected : ColorIdle;
+                image.color = fav ? ColorSelected : ColorIdle;
             }
             if (_favoriteButtonLabel != null)
             {
-                _favoriteButtonLabel.color = _favoritesOnly ? ColorTextSelected : ColorTextIdle;
+                _favoriteButtonLabel.color = fav ? ColorTextSelected : ColorTextIdle;
             }
         }
 

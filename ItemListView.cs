@@ -125,6 +125,9 @@ namespace ItemSpawnerEnhancement
             Rebuild();
         }
 
+        /// <summary>当前收藏筛选状态（唯一数据源，供 UiEnhancer 读取以刷新按钮颜色）。</summary>
+        public bool FavoritesOnly { get { return _favoritesOnly; } }
+
         /// <summary>切换收藏筛选：仅显示已收藏物品（与分类/搜索叠加）。</summary>
         public void SetFavoritesOnly(bool value)
         {
@@ -159,9 +162,11 @@ namespace ItemSpawnerEnhancement
         {
             _all.Clear();
             ItemDatabase db = SingletonAsset<ItemDatabase>.Instance;
-            if (db == null || db.Objects == null)
+            if (db == null || db.Objects == null || db.Objects.Count == 0)
             {
-                return;
+                // 主菜单早期 ItemDatabase 未就绪时抛异常，冒泡到 UiEnhancer.Setup 的 catch 回滚 view，
+                // 下次 F5/Warmup 重新 Setup，避免目录被缓存为空后永久空白。
+                throw new InvalidOperationException("ItemDatabase 未就绪（空），稍后重试");
             }
             foreach (Item item in db.Objects)
             {
@@ -437,7 +442,6 @@ namespace ItemSpawnerEnhancement
                 string capturedPrefab = entry.prefabName;
                 Transform capturedFav = clone.Find("Favorite");
                 ft.Configure(() => ToggleFavorite(capturedPrefab, capturedFav));
-                ft.InteractionEnabled = true;
 
                 // 心形标记：收藏时显示
                 Transform fav = clone.Find("Favorite");
@@ -558,15 +562,7 @@ namespace ItemSpawnerEnhancement
             {
                 return "";
             }
-            StringBuilder sb = new StringBuilder(text.Length);
-            foreach (char ch in text)
-            {
-                if (char.IsLetterOrDigit(ch))
-                {
-                    sb.Append(char.ToLowerInvariant(ch));
-                }
-            }
-            return sb.ToString();
+            return FilterAlnumLower(text);
         }
 
         /// <summary>将字符串中的汉字转成拼音全拼（其余字母数字保留），用于拼音搜索。</summary>
@@ -576,16 +572,7 @@ namespace ItemSpawnerEnhancement
             {
                 return "";
             }
-            string raw = PinyinHelper.GetPinyin(text, ""); // 全拼无空格，非汉字原样保留
-            StringBuilder sb = new StringBuilder(raw.Length);
-            foreach (char ch in raw)
-            {
-                if (char.IsLetterOrDigit(ch))
-                {
-                    sb.Append(char.ToLowerInvariant(ch));
-                }
-            }
-            return sb.ToString();
+            return FilterAlnumLower(PinyinHelper.GetPinyin(text, "")); // 全拼无空格，非汉字原样保留
         }
 
         /// <summary>将字符串中的汉字转成拼音首字母（其余字母数字保留，小写无空格），用于首字母搜索。</summary>
@@ -595,7 +582,12 @@ namespace ItemSpawnerEnhancement
             {
                 return "";
             }
-            string raw = PinyinHelper.GetPinyinInitials(text, ""); // 首字母，非汉字原样保留
+            return FilterAlnumLower(PinyinHelper.GetPinyinInitials(text, "")); // 首字母，非汉字原样保留
+        }
+
+        /// <summary>过滤非字母数字字符并转小写（拼音全拼/首字母/搜索 query 共用的归一化逻辑）。</summary>
+        private static string FilterAlnumLower(string raw)
+        {
             StringBuilder sb = new StringBuilder(raw.Length);
             foreach (char ch in raw)
             {

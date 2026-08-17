@@ -9,8 +9,6 @@ namespace ItemSpawnerEnhancement
     {
         private Action _onFavorite;
 
-        public bool InteractionEnabled { get; set; }
-
         public void Configure(Action onFavorite)
         {
             _onFavorite = onFavorite;
@@ -18,7 +16,7 @@ namespace ItemSpawnerEnhancement
 
         public void OnPointerClick(PointerEventData eventData)
         {
-            if (InteractionEnabled && eventData.button == PointerEventData.InputButton.Right && _onFavorite != null)
+            if (eventData.button == PointerEventData.InputButton.Right && _onFavorite != null)
             {
                 _onFavorite();
             }
