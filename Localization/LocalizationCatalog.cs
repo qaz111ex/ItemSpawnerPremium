@@ -28,21 +28,29 @@ namespace ItemSpawnerEnhancement
                 string languageCode = resourceName.Substring(
                     markerIndex + marker.Length,
                     resourceName.Length - markerIndex - marker.Length - ".json".Length);
-                using (Stream stream = assembly.GetManifestResourceStream(resourceName))
+                try
                 {
-                    if (stream == null)
+                    using (Stream stream = assembly.GetManifestResourceStream(resourceName))
                     {
-                        continue;
-                    }
-                    using (StreamReader reader = new StreamReader(stream))
-                    {
-                        Dictionary<string, string> values =
-                            JsonConvert.DeserializeObject<Dictionary<string, string>>(reader.ReadToEnd());
-                        if (values != null)
+                        if (stream == null)
                         {
-                            _languages[languageCode] = values;
+                            continue;
+                        }
+                        using (StreamReader reader = new StreamReader(stream))
+                        {
+                            Dictionary<string, string> values =
+                                JsonConvert.DeserializeObject<Dictionary<string, string>>(reader.ReadToEnd());
+                            if (values != null)
+                            {
+                                _languages[languageCode] = values;
+                            }
                         }
                     }
+                }
+                catch (Exception ex)
+                {
+                    // 单个语言文件损坏时跳过该文件，保证其余语言仍可用，避免整个 catalog 构造抛异常
+                    Plugin.Log.LogWarning("ItemSpawnerPlus: 加载本地化资源失败 " + resourceName + ": " + ex.Message);
                 }
             }
         }
