@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using Photon.Pun;
+using TinyPinyin;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -21,6 +23,7 @@ namespace ItemSpawnerEnhancement
             public string enName;      // 英文显示名（用于英文关键词搜索）
             public string prefabName;  // 英文 prefab 名
             public string pinyin;      // 显示名的拼音全拼（无空格，小写）
+            public string pinyinInitials; // 显示名的拼音首字母（小写无空格）
             public ItemCategory tags;       // 多标签（Flags）
             public ItemCategory primary;    // 主分类（用于排序）
         }
@@ -133,6 +136,7 @@ namespace ItemSpawnerEnhancement
             {
                 entry.displayName = ResolveDisplayName(entry.item, entry.prefabName);
                 entry.pinyin = ToPinyin(entry.displayName);
+                entry.pinyinInitials = ToPinyinInitials(entry.displayName);
             }
             _all.Sort(CompareEntries);
             RefreshFonts();
@@ -172,6 +176,7 @@ namespace ItemSpawnerEnhancement
                         enName = ResolveEnglishName(item, prefab),
                         prefabName = prefab,
                         pinyin = ToPinyin(display),
+                        pinyinInitials = ToPinyinInitials(display),
                         tags = tags,
                         primary = primary,
                     });
@@ -362,12 +367,16 @@ namespace ItemSpawnerEnhancement
             string query = (_query == null) ? "" : _query.Trim().ToLowerInvariant();
             string queryNoSpace = query.Replace(" ", "");
 
-            foreach (Entry entry in _all)
+            // 智能排名：先计算每个条目匹配分数（0 表示不匹配），按分数降序排列；
+            // LINQ OrderByDescending 为稳定排序，同分保持原顺序（分类 + 显示名顺序）。
+            var ordered = _all
+                .Select(entry => new { Entry = entry, S = Score(entry, query, queryNoSpace) })
+                .Where(x => x.S > 0)
+                .OrderByDescending(x => x.S);
+
+            foreach (var item in ordered)
             {
-                if (!Matches(entry, query, queryNoSpace))
-                {
-                    continue;
-                }
+                Entry entry = item.Entry;
                 Transform clone = Instantiate(_template, _content);
                 clone.SetAsLastSibling();
                 clone.gameObject.name = entry.prefabName;
@@ -418,33 +427,54 @@ namespace ItemSpawnerEnhancement
             _template.gameObject.SetActive(false);
         }
 
-        private bool Matches(Entry entry, string query, string queryNoSpace)
+        /// <summary>
+        /// 计算条目匹配分数：返回 0 表示不匹配，分数越高排名越靠前。
+        /// 优先级：当前语言显示名 &gt; 英文名 &gt; prefab 名 &gt; 拼音全拼 &gt; 拼音首字母；
+        /// 每档内再按「精确 == / 前缀 / 包含」细分。
+        /// </summary>
+        private int Score(Entry entry, string query, string queryNoSpace)
         {
+            // query 已 trim + ToLowerInvariant；queryNoSpace 是去掉空格后的 query
             if (!ItemCatalog.IsInMajor(entry.tags, _major))
             {
-                return false;
+                return 0;
             }
             if (query.Length == 0)
             {
-                return true;
+                return 1; // 空查询全部匹配，最低正分
             }
-            if (entry.displayName != null && entry.displayName.ToLowerInvariant().Contains(query))
+
+            string dn = entry.displayName == null ? null : entry.displayName.ToLowerInvariant();
+            string en = entry.enName == null ? null : entry.enName.ToLowerInvariant();
+            string pn = entry.prefabName == null ? null : entry.prefabName.ToLowerInvariant();
+
+            // 当前语言显示名（最高优先级）
+            if (dn != null)
             {
-                return true;
+                if (dn == query) return 1000;
+                if (dn.StartsWith(query)) return 800;
+                if (dn.Contains(query)) return 500;
             }
-            if (entry.enName != null && entry.enName.ToLowerInvariant().Contains(query))
+            // 英文名
+            if (en != null)
             {
-                return true;
+                if (en == query) return 900;
+                if (en.StartsWith(query)) return 700;
+                if (en.Contains(query)) return 400;
             }
-            if (entry.prefabName != null && entry.prefabName.ToLowerInvariant().Contains(query))
+            // prefab 名
+            if (pn != null)
             {
-                return true;
+                if (pn == query) return 800;
+                if (pn.StartsWith(query)) return 600;
+                if (pn.Contains(query)) return 350;
             }
-            if (entry.pinyin != null && entry.pinyin.Contains(queryNoSpace))
-            {
-                return true;
-            }
-            return false;
+            // 拼音全拼
+            if (entry.pinyin != null && entry.pinyin.Contains(queryNoSpace)) return 200;
+            // 拼音首字母
+            if (entry.pinyinInitials != null && entry.pinyinInitials.Contains(queryNoSpace)) return 100;
+
+            return 0;
         }
 
         private void SpawnItem(Item item)
@@ -476,22 +506,30 @@ namespace ItemSpawnerEnhancement
             {
                 return "";
             }
-            StringBuilder sb = new StringBuilder(text.Length);
-            foreach (char ch in text)
+            string raw = PinyinHelper.GetPinyin(text, ""); // 全拼无空格，非汉字原样保留
+            StringBuilder sb = new StringBuilder(raw.Length);
+            foreach (char ch in raw)
             {
-                if (ch >= 0x4e00 && ch <= 0x9fff)
+                if (char.IsLetterOrDigit(ch))
                 {
-                    string pinyin;
-                    if (ItemCatalog.PinyinMap.TryGetValue(ch, out pinyin))
-                    {
-                        sb.Append(pinyin);
-                    }
-                    else
-                    {
-                        sb.Append(ch);
-                    }
+                    sb.Append(char.ToLowerInvariant(ch));
                 }
-                else if (char.IsLetterOrDigit(ch))
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>将字符串中的汉字转成拼音首字母（其余字母数字保留，小写无空格），用于首字母搜索。</summary>
+        public static string ToPinyinInitials(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return "";
+            }
+            string raw = PinyinHelper.GetPinyinInitials(text, ""); // 首字母，非汉字原样保留
+            StringBuilder sb = new StringBuilder(raw.Length);
+            foreach (char ch in raw)
+            {
+                if (char.IsLetterOrDigit(ch))
                 {
                     sb.Append(char.ToLowerInvariant(ch));
                 }
