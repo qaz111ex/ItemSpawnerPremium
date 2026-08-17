@@ -365,7 +365,7 @@ namespace ItemSpawnerEnhancement
 
             TMP_FontAsset font = NeedsCjkFont() ? _fontCjk : _fontLatin;
             string query = (_query == null) ? "" : _query.Trim().ToLowerInvariant();
-            string queryNoSpace = query.Replace(" ", "");
+            string queryNoSpace = StripNonAlnum(query); // 与 pinyin/pinyinInitials 同规则：去掉所有非字母数字
 
             // 智能排名：先计算每个条目匹配分数（0 表示不匹配），按分数降序排列；
             // LINQ OrderByDescending 为稳定排序，同分保持原顺序（分类 + 显示名顺序）。
@@ -497,6 +497,24 @@ namespace ItemSpawnerEnhancement
             {
                 Plugin.Log.LogError("ItemSpawner Enhancement failed to spawn " + item.gameObject.name + ": " + ex);
             }
+        }
+
+        /// <summary>去掉所有非字母数字字符（小写化后），用于与 pinyin/pinyinInitials 字段对齐匹配。</summary>
+        public static string StripNonAlnum(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return "";
+            }
+            StringBuilder sb = new StringBuilder(text.Length);
+            foreach (char ch in text)
+            {
+                if (char.IsLetterOrDigit(ch))
+                {
+                    sb.Append(char.ToLowerInvariant(ch));
+                }
+            }
+            return sb.ToString();
         }
 
         /// <summary>将字符串中的汉字转成拼音全拼（其余字母数字保留），用于拼音搜索。</summary>
