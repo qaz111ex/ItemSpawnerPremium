@@ -23,19 +23,29 @@ namespace ItemSpawnerEnhancement
         private static Button _favoriteButton;
         private static TextMeshProUGUI _favoriteButtonLabel;
         private static Texture2D _heartTexture;
+        private static readonly Dictionary<float, Sprite> _roundedSprites = new Dictionary<float, Sprite>();
 
-        // 配色方案：浅色系暖"卡纸"风（应用户反馈，把原深暖棕/深卡其整体调浅）。
-        // 保留 PEAK 户外暖色基调（米棕 → 奶油 → 浅暖黄方向），不采用冷色或纯白刺眼。
+        // 配色方案：暖"卡纸"手绘贴纸风。保留 PEAK 户外暖色基调（米棕 → 奶油 → 浅暖黄），不采用冷色或纯白刺眼。
         // 浅底必须配深字：三态文字统一走深暖棕，保证高对比可读。
         private static readonly Color ColorIdle = new Color(0.82f, 0.75f, 0.63f, 1f);        // 默认填充：浅暖米棕（卡纸基色）
         private static readonly Color ColorHover = new Color(0.90f, 0.84f, 0.74f, 1f);       // 悬停：更亮的奶油米黄（比默认更亮，明显抬升）
         private static readonly Color ColorSelected = new Color(0.96f, 0.91f, 0.81f, 1f);    // 选中：最浅的暖黄高亮（三态中最亮，突出选中）
-        private static readonly Color ColorBorder = new Color(0.70f, 0.60f, 0.48f, 0.6f);    // 按钮描边：浅暖棕（比各填充略深以勾边，明显浅于原卡其）
         private static readonly Color ColorTextIdle = new Color(0.28f, 0.21f, 0.14f, 1f);    // 默认/悬停文字：深暖棕（浅色底上高对比）
         private static readonly Color ColorTextSelected = new Color(0.22f, 0.16f, 0.10f, 1f); // 选中文字：更深的暖棕（最浅选中底上更稳）
 
-        // 面板底色（暖卡纸）：比分类按钮略深一档，衬托按钮与条目。
+        // 面板底色（暖卡纸）：比分类按钮略深一档，衬托按钮与条目（用户喜欢的牛皮纸基调，保留）。
         private static readonly Color PanelBackground = new Color(0.76f, 0.69f, 0.56f, 1f);
+
+        // 手绘勾线色：深咖啡棕墨水描边（所有元素统一的"勾线"色，层级靠粗细区分）。
+        private static readonly Color ColorInkOutline = new Color(0.36f, 0.25f, 0.15f, 1f);
+        // 内层浅色描边：暖奶油白（贴在墨水线内侧，制造"贴纸白边 + 双层勾线"的手绘层次）。
+        private static readonly Color ColorInnerHighlight = new Color(0.99f, 0.94f, 0.85f, 1f);
+        // 卡片底色：比面板略亮的奶油卡纸（卡片从面板上"浮"起来，建立层次）。
+        private static readonly Color ColorCardFill = new Color(0.89f, 0.83f, 0.73f, 1f);
+        // 面板投影：深暖棕半透明（面板下方"纸张投影"，制造浮起深度）。
+        private static readonly Color ColorPanelShadow = new Color(0.33f, 0.24f, 0.15f, 0.35f);
+        // 搜索框底色：略深于面板的暖卡其（下凹"输入槽"感）。
+        private static readonly Color ColorSearchFill = new Color(0.70f, 0.62f, 0.50f, 1f);
 
         /// <summary>构建入口：接收 ItemSpawnerPlusWindow，创建完整 UI 树并挂载 ItemListView。</summary>
         public static void Setup(ItemSpawnerPlusWindow window)
@@ -150,6 +160,20 @@ namespace ItemSpawnerEnhancement
 
         private static RectTransform CreatePanel(RectTransform root)
         {
+            const float radius = 16f;
+
+            // 纸张投影：面板下方略大、略深的暖棕半透明圆角片，制造"贴纸/卡纸浮起"的层次
+            GameObject shadowGo = new GameObject("PanelShadow", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            RectTransform shadowRt = (RectTransform)shadowGo.transform;
+            shadowRt.SetParent(root, false);
+            shadowRt.anchorMin = new Vector2(0.18f, 0.18f);
+            shadowRt.anchorMax = new Vector2(0.82f, 0.82f);
+            shadowRt.offsetMin = new Vector2(-8f, -16f);   // 比面板略大一圈，向下偏移模拟顶部光源
+            shadowRt.offsetMax = new Vector2(8f, 0f);
+            Image shadowImg = shadowGo.GetComponent<Image>();
+            SetRounded(shadowImg, radius, ColorPanelShadow);
+            shadowImg.raycastTarget = false;
+
             GameObject go = new GameObject("Panel", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
             RectTransform rt = (RectTransform)go.transform;
             rt.SetParent(root, false);
@@ -159,9 +183,11 @@ namespace ItemSpawnerEnhancement
             rt.offsetMax = Vector2.zero;
 
             Image bg = go.GetComponent<Image>();
-            bg.sprite = null;
-            bg.color = PanelBackground;
+            SetRounded(bg, radius, PanelBackground); // 圆角牛皮纸面板
             bg.raycastTarget = true;
+
+            // 面板最厚的双层描边（层级最强：面板 > 卡片 > 按钮）
+            AddHandDrawnOutline(go, 2.5f, ColorInkOutline, ColorInnerHighlight);
             return rt;
         }
 
@@ -178,9 +204,9 @@ namespace ItemSpawnerEnhancement
             rt.sizeDelta = new Vector2(0f, 50f);
 
             Image bg = go.GetComponent<Image>();
-            bg.sprite = null;
-            bg.color = new Color(0.72f, 0.64f, 0.52f, 1f); // 略深于面板的暖卡其输入底色
+            SetRounded(bg, 10f, ColorSearchFill); // 圆角暖卡其输入槽
             bg.raycastTarget = true;
+            AddHandDrawnOutline(go, 1.5f, ColorInkOutline, ColorInnerHighlight);
 
             // 文本显示区（RectMask2D 裁剪超长输入）
             GameObject areaGo = new GameObject("Text Area", typeof(RectTransform), typeof(CanvasRenderer), typeof(RectMask2D));
@@ -268,7 +294,7 @@ namespace ItemSpawnerEnhancement
             contentRt.sizeDelta = Vector2.zero;
 
             GridLayoutGroup grid = contentGo.GetComponent<GridLayoutGroup>();
-            grid.cellSize = new Vector2(150f, 150f);       // 正方形格子
+            grid.cellSize = new Vector2(90f, 90f);       // 正方形格子（改回紧凑 90×90）
             grid.spacing = new Vector2(12f, 12f);
             grid.padding = new RectOffset(8, 8, 8, 8);
             grid.constraint = GridLayoutGroup.Constraint.Flexible;   // 自动换行
@@ -299,35 +325,35 @@ namespace ItemSpawnerEnhancement
             GameObject go = new GameObject("ItemEntry", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button), typeof(LayoutElement));
             RectTransform rt = (RectTransform)go.transform;
             rt.SetParent(content, false);
-            rt.sizeDelta = new Vector2(150f, 150f);
+            rt.sizeDelta = new Vector2(90f, 90f);
 
             LayoutElement layout = go.GetComponent<LayoutElement>();
-            layout.preferredWidth = 150f;
-            layout.preferredHeight = 150f;
+            layout.preferredWidth = 90f;
+            layout.preferredHeight = 90f;
             layout.flexibleWidth = 0f;
 
             Image bg = go.GetComponent<Image>();
-            bg.sprite = null;
-            bg.color = new Color(1f, 1f, 1f, 0.06f); // 浅色面板上的微反衬条目底色
+            SetRounded(bg, 9f, ColorCardFill); // 圆角奶油卡纸卡片，从面板上浮起
             bg.raycastTarget = true;
+            AddHandDrawnOutline(go, 1.5f, ColorInkOutline, ColorInnerHighlight);
 
             Button button = go.GetComponent<Button>();
             button.targetGraphic = bg;
             button.transition = Selectable.Transition.None;
 
-            // 图标（顶部居中，约 90x90）
+            // 图标（顶部居中，48×48，在 90×90 卡内合理排布）
             GameObject iconGo = new GameObject("ItemIcon", typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage));
             RectTransform iconRt = (RectTransform)iconGo.transform;
             iconRt.SetParent(rt, false);
             iconRt.anchorMin = new Vector2(0.5f, 1f);
             iconRt.anchorMax = new Vector2(0.5f, 1f);
             iconRt.pivot = new Vector2(0.5f, 1f);
-            iconRt.anchoredPosition = new Vector2(0f, -8f);
-            iconRt.sizeDelta = new Vector2(90f, 90f);
+            iconRt.anchoredPosition = new Vector2(0f, -4f);
+            iconRt.sizeDelta = new Vector2(48f, 48f);
             RawImage icon = iconGo.GetComponent<RawImage>();
             icon.raycastTarget = false;
 
-            // 文字（底部居中，最多 2 行，超出省略号）
+            // 文字（底部居中，字号缩小到 12 仍可读，最多 2 行，超出省略号）
             GameObject nameGo = new GameObject("ItemName", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
             RectTransform nameRt = (RectTransform)nameGo.transform;
             nameRt.SetParent(rt, false);
@@ -337,10 +363,10 @@ namespace ItemSpawnerEnhancement
             nameRt.offsetMin = Vector2.zero;
             nameRt.offsetMax = Vector2.zero;
             nameRt.anchoredPosition = new Vector2(0f, 4f);
-            nameRt.sizeDelta = new Vector2(-10f, 44f);
+            nameRt.sizeDelta = new Vector2(-8f, 28f);
             TextMeshProUGUI name = nameGo.GetComponent<TextMeshProUGUI>();
             name.font = font;
-            name.fontSize = 19f;
+            name.fontSize = 12f;
             name.color = ColorTextIdle;
             name.alignment = TextAlignmentOptions.Center;   // 居中
             name.textWrappingMode = TextWrappingModes.Normal; // 换行（enableWordWrapping 已弃用）
@@ -348,15 +374,15 @@ namespace ItemSpawnerEnhancement
             name.maxVisibleLines = 2;                        // 最多 2 行
             name.raycastTarget = false;
 
-            // 心形标记（右上角，收藏时显示）
+            // 心形标记（右上角，收藏时显示，缩小适配 90×90 卡）
             GameObject favGo = new GameObject("Favorite", typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage));
             RectTransform favRt = (RectTransform)favGo.transform;
             favRt.SetParent(rt, false);
             favRt.anchorMin = new Vector2(1f, 1f);
             favRt.anchorMax = new Vector2(1f, 1f);
             favRt.pivot = new Vector2(1f, 1f);
-            favRt.anchoredPosition = new Vector2(-6f, -6f);
-            favRt.sizeDelta = new Vector2(24f, 24f);
+            favRt.anchoredPosition = new Vector2(-4f, -4f);
+            favRt.sizeDelta = new Vector2(20f, 20f);
             RawImage favImg = favGo.GetComponent<RawImage>();
             favImg.texture = GetHeartTexture();
             favImg.color = new Color(0.86f, 0.32f, 0.34f, 1f); // 暖红心形
@@ -408,6 +434,107 @@ namespace ItemSpawnerEnhancement
             texture.Apply(false, true);
             _heartTexture = texture;
             return _heartTexture;
+        }
+
+        /// <summary>程序化生成 9-slice 圆角矩形 Sprite（按圆角半径缓存，复用避免重复生成）。</summary>
+        private static Sprite GetRoundedSprite(float radius)
+        {
+            Sprite sprite;
+            if (_roundedSprites.TryGetValue(radius, out sprite))
+            {
+                return sprite;
+            }
+            sprite = CreateRoundedSprite(radius);
+            _roundedSprites[radius] = sprite;
+            return sprite;
+        }
+
+        /// <summary>生成抗锯齿圆角矩形纹理并打包成 9-slice Sprite（思路同 RuntimeUiAssets.CreateRoundedRectSprite）。</summary>
+        private static Sprite CreateRoundedSprite(float radius)
+        {
+            const int size = 64;
+            const int samplesPerAxis = 4;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            texture.name = "ItemSpawnerPlus Rounded r" + radius;
+            texture.filterMode = FilterMode.Bilinear;
+            texture.wrapMode = TextureWrapMode.Clamp;
+            texture.hideFlags = HideFlags.HideAndDontSave;
+
+            var pixels = new Color32[size * size];
+            Vector2 center = new Vector2(size * 0.5f, size * 0.5f);
+            float half = size * 0.5f - radius;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    int inside = 0;
+                    for (int sy = 0; sy < samplesPerAxis; sy++)
+                    {
+                        for (int sx = 0; sx < samplesPerAxis; sx++)
+                        {
+                            Vector2 p = new Vector2(
+                                x + (sx + 0.5f) / samplesPerAxis,
+                                y + (sy + 0.5f) / samplesPerAxis);
+                            Vector2 d = new Vector2(
+                                Mathf.Abs(p.x - center.x) - half,
+                                Mathf.Abs(p.y - center.y) - half);
+                            Vector2 outside = new Vector2(Mathf.Max(d.x, 0f), Mathf.Max(d.y, 0f));
+                            float sd = outside.magnitude + Mathf.Min(Mathf.Max(d.x, d.y), 0f) - radius;
+                            if (sd <= 0f)
+                            {
+                                inside++;
+                            }
+                        }
+                    }
+                    pixels[y * size + x] = new Color32(255, 255, 255, (byte)(255 * inside / (samplesPerAxis * samplesPerAxis)));
+                }
+            }
+            texture.SetPixels32(pixels);
+            texture.Apply(false, true);
+
+            float border = radius + 1f; // 9-slice 边框略大于圆角半径，保证四角完整不被拉伸
+            Sprite result = Sprite.Create(
+                texture,
+                new Rect(0f, 0f, size, size),
+                new Vector2(0.5f, 0.5f),
+                100f,
+                0u,
+                SpriteMeshType.FullRect,
+                new Vector4(border, border, border, border));
+            result.name = texture.name;
+            result.hideFlags = HideFlags.HideAndDontSave;
+            return result;
+        }
+
+        /// <summary>给 Image 套上圆角 Sprite + 填充色（Sliced 模式才会启用 9-slice 圆角）。</summary>
+        private static void SetRounded(Image image, float radius, Color fill)
+        {
+            image.sprite = GetRoundedSprite(radius);
+            image.type = Image.Type.Sliced;
+            image.color = fill;
+        }
+
+        /// <summary>
+        /// 手绘勾线：叠加多层 Outline 制造「深色墨水外描边 + 浅色内描边」的双层手绘贴纸感。
+        /// 墨线用两条对角线偏移合成覆盖四边的粗描边（四角略重，天然的手绘马克笔质感）；
+        /// 浅色内描边贴边覆盖墨线内缘，形成"白边 + 勾线"层次。
+        /// </summary>
+        private static void AddHandDrawnOutline(GameObject go, float thickness, Color ink, Color inner)
+        {
+            float t = thickness;
+            float innerT = Mathf.Max(0.6f, t * 0.5f);
+            AddOutline(go, ink, new Vector2(t, -t));
+            AddOutline(go, ink, new Vector2(-t, t));
+            AddOutline(go, inner, new Vector2(innerT, -innerT));
+            AddOutline(go, inner, new Vector2(-innerT, innerT));
+        }
+
+        private static void AddOutline(GameObject go, Color color, Vector2 distance)
+        {
+            Outline outline = go.AddComponent<Outline>();
+            outline.effectColor = color;
+            outline.effectDistance = distance;
+            outline.useGraphicAlpha = true;
         }
 
         /// <summary>语言切换时刷新分类按钮的文字与字体（按钮 label 在创建时按当时语言固化）。</summary>
@@ -490,17 +617,15 @@ namespace ItemSpawnerEnhancement
             rt.sizeDelta = new Vector2(0f, 50f);
 
             Image image = go.GetComponent<Image>();
-            image.sprite = null;
-            image.color = ColorIdle;
+            SetRounded(image, 10f, ColorIdle); // 圆角暖米棕填充
             image.raycastTarget = true;
 
             Button button = go.GetComponent<Button>();
             button.targetGraphic = image;
             button.transition = Selectable.Transition.None;
 
-            Outline outline = go.AddComponent<Outline>();
-            outline.effectColor = ColorBorder;
-            outline.effectDistance = new Vector2(1f, 1f);
+            // 手绘双层描边（深墨外描边 + 浅奶油内描边）
+            AddHandDrawnOutline(go, 1.5f, ColorInkOutline, ColorInnerHighlight);
 
             button.onClick.AddListener(OnFavoriteToggled);
 
@@ -590,19 +715,15 @@ namespace ItemSpawnerEnhancement
 
             Image image = go.GetComponent<Image>();
             // 不使用 UISprite：该 sprite 为圆角且带投影纹理，不透明填充时暴露圆角与像素阴影。
-            // 置空 sprite 后 Image 渲染为纯直角矩形，暖卡其描边由下方 Outline 组件提供。
-            image.sprite = null;
-            image.color = ColorIdle; // 默认浅暖米棕填充（悬停/选中由 EventTrigger 与 RefreshButtonColor 统一管理）
+            // 改用程序化圆角 Sprite + 双层手绘描边（深墨外描边 + 浅奶油内描边）。
+            SetRounded(image, 10f, ColorIdle);
             image.raycastTarget = true;
 
             Button button = go.GetComponent<Button>();
             button.targetGraphic = image;
             button.transition = Selectable.Transition.None; // 颜色由代码统一管理
 
-            // 浅暖棕细描边：浅色卡纸的勾边（比填充略深以界定边缘，替换原先的深卡其描边）
-            Outline outline = go.AddComponent<Outline>();
-            outline.effectColor = ColorBorder;
-            outline.effectDistance = new Vector2(1f, 1f);
+            AddHandDrawnOutline(go, 1.5f, ColorInkOutline, ColorInnerHighlight);
 
             MajorCategory captured = major;
             button.onClick.AddListener(() => OnMajorSelected(captured));
