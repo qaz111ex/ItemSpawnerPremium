@@ -6,5 +6,6 @@
   "catEquipment": "Снаряжение",
   "catConsumables": "Расходники",
   "catProps": "Прочее",
-  "searchPlaceholder": "Поиск предметов..."
+  "searchPlaceholder": "Поиск предметов...",
+  "catFavorite": "Избранное"
 }

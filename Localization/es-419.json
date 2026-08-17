@@ -6,5 +6,6 @@
   "catEquipment": "Equipo",
   "catConsumables": "Consumibles",
   "catProps": "Otros",
-  "searchPlaceholder": "Buscar objetos..."
+  "searchPlaceholder": "Buscar objetos...",
+  "catFavorite": "Favoritos"
 }

@@ -6,5 +6,6 @@
   "catEquipment": "Спорядження",
   "catConsumables": "Витратні",
   "catProps": "Інше",
-  "searchPlaceholder": "Пошук предметів..."
+  "searchPlaceholder": "Пошук предметів...",
+  "catFavorite": "Обрані"
 }

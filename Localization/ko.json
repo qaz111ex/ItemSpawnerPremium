@@ -6,5 +6,6 @@
   "catEquipment": "장비",
   "catConsumables": "소모품",
   "catProps": "소품",
-  "searchPlaceholder": "아이템 검색..."
+  "searchPlaceholder": "아이템 검색...",
+  "catFavorite": "즐겨찾기"
 }

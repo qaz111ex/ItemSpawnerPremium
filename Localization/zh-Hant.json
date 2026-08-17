@@ -6,5 +6,6 @@
   "catEquipment": "裝備",
   "catConsumables": "消耗品",
   "catProps": "場景",
-  "searchPlaceholder": "搜尋物品..."
+  "searchPlaceholder": "搜尋物品...",
+  "catFavorite": "收藏"
 }

@@ -6,5 +6,6 @@
   "catEquipment": "Ekipman",
   "catConsumables": "Tüketilebilir",
   "catProps": "Diğer",
-  "searchPlaceholder": "Eşya ara..."
+  "searchPlaceholder": "Eşya ara...",
+  "catFavorite": "Favoriler"
 }

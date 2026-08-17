@@ -37,6 +37,7 @@ namespace ItemSpawnerEnhancement
         private List<Entry> _all = new List<Entry>();
         private MajorCategory _major = MajorCategory.All;
         private string _query = "";
+        private bool _favoritesOnly;
 
         private TMP_FontAsset _fontLatin;
         private TMP_FontAsset _fontCjk;
@@ -122,6 +123,16 @@ namespace ItemSpawnerEnhancement
         {
             _query = value ?? "";
             Rebuild();
+        }
+
+        /// <summary>切换收藏筛选：仅显示已收藏物品（与分类/搜索叠加）。</summary>
+        public void SetFavoritesOnly(bool value)
+        {
+            if (_favoritesOnly != value)
+            {
+                _favoritesOnly = value;
+                Rebuild();
+            }
         }
 
         private void OnSearchChanged(string value)
@@ -420,6 +431,20 @@ namespace ItemSpawnerEnhancement
                     button.onClick.RemoveAllListeners();
                     button.onClick.AddListener(() => SpawnItem(captured));
                 }
+
+                // 右键收藏：挂 IPointerClickHandler 监听右键，切换收藏并重建
+                ItemFavoriteTrigger ft = clone.gameObject.AddComponent<ItemFavoriteTrigger>();
+                string capturedPrefab = entry.prefabName;
+                ft.Configure(() => ToggleFavorite(capturedPrefab));
+                ft.InteractionEnabled = true;
+
+                // 心形标记：收藏时显示
+                Transform fav = clone.Find("Favorite");
+                if (fav != null)
+                {
+                    fav.gameObject.SetActive(Plugin.Favorites.IsFavorite(entry.prefabName));
+                }
+
                 clone.gameObject.SetActive(true);
             }
 
@@ -438,6 +463,10 @@ namespace ItemSpawnerEnhancement
             if (!ItemCatalog.IsInMajor(entry.tags, _major))
             {
                 return 0;
+            }
+            if (_favoritesOnly && !Plugin.Favorites.IsFavorite(entry.prefabName))
+            {
+                return 0; // 收藏筛选：非收藏物品不匹配
             }
             if (query.Length == 0)
             {
@@ -475,6 +504,16 @@ namespace ItemSpawnerEnhancement
             if (entry.pinyinInitials != null && entry.pinyinInitials.Contains(queryNoSpace)) return 100;
 
             return 0;
+        }
+
+        /// <summary>切换物品收藏（右键触发），成功后重建列表以刷新心形标记与筛选。</summary>
+        private void ToggleFavorite(string prefabName)
+        {
+            bool isFav;
+            if (Plugin.Favorites.TryToggle(prefabName, out isFav))
+            {
+                Rebuild();
+            }
         }
 
         private void SpawnItem(Item item)

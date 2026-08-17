@@ -18,6 +18,9 @@ namespace ItemSpawnerEnhancement
         /// <summary>窗口静态引用，供 Update（F5 轮询）/ Warmup 使用。</summary>
         internal static ItemSpawnerPlusWindow Window { get; private set; }
 
+        /// <summary>收藏集合（Config 持久化），供 ItemListView/UiEnhancer 使用。</summary>
+        internal static FavoriteStore Favorites { get; private set; }
+
         private static ConfigEntry<Key> _toggleKey;
 
         private void Awake()
@@ -29,6 +32,9 @@ namespace ItemSpawnerEnhancement
                 "ToggleKey",
                 Key.F5,
                 "打开/关闭物品生成器窗口的按键（Unity.InputSystem.Key 枚举值）。");
+
+            Favorites = new FavoriteStore(Config.Bind<string>("Favorites", "ItemNames", "[]",
+                "收藏物品的 prefab 名（JSON 数组），在物品生成器 UI 中右键物品管理。"));
 
             Harmony harmony = new Harmony("com.itemspawnerplus.ItemSpawnerPlus");
             harmony.PatchAll(Assembly.GetExecutingAssembly());

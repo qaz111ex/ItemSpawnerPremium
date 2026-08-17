@@ -20,6 +20,10 @@ namespace ItemSpawnerEnhancement
         private static readonly List<Button> _categoryButtons = new List<Button>();
         private static readonly List<TextMeshProUGUI> _categoryButtonLabels = new List<TextMeshProUGUI>();
         private static ItemListView _view;
+        private static Button _favoriteButton;
+        private static TextMeshProUGUI _favoriteButtonLabel;
+        private static bool _favoritesOnly;
+        private static Texture2D _heartTexture;
 
         // 配色方案：浅色系暖"卡纸"风（应用户反馈，把原深暖棕/深卡其整体调浅）。
         // 保留 PEAK 户外暖色基调（米棕 → 奶油 → 浅暖黄方向），不采用冷色或纯白刺眼。
@@ -338,7 +342,66 @@ namespace ItemSpawnerEnhancement
             name.alignment = TextAlignmentOptions.MidlineLeft;
             name.raycastTarget = false;
 
+            // 心形标记（右上角，收藏时显示）
+            GameObject favGo = new GameObject("Favorite", typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage));
+            RectTransform favRt = (RectTransform)favGo.transform;
+            favRt.SetParent(rt, false);
+            favRt.anchorMin = new Vector2(1f, 1f);
+            favRt.anchorMax = new Vector2(1f, 1f);
+            favRt.pivot = new Vector2(1f, 1f);
+            favRt.anchoredPosition = new Vector2(-6f, -6f);
+            favRt.sizeDelta = new Vector2(24f, 24f);
+            RawImage favImg = favGo.GetComponent<RawImage>();
+            favImg.texture = GetHeartTexture();
+            favImg.color = new Color(0.86f, 0.32f, 0.34f, 1f); // 暖红心形
+            favImg.raycastTarget = false;
+            favGo.SetActive(false); // 默认隐藏
+
             return rt;
+        }
+
+        /// <summary>程序化生成 32x32 心形纹理（静态缓存，避免重复生成）。</summary>
+        private static Texture2D GetHeartTexture()
+        {
+            if (_heartTexture != null)
+            {
+                return _heartTexture;
+            }
+            const int size = 32;
+            const int samplesPerAxis = 4;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            texture.name = "ItemSpawnerPlus Heart";
+            texture.filterMode = FilterMode.Bilinear;
+            texture.wrapMode = TextureWrapMode.Clamp;
+            texture.hideFlags = HideFlags.HideAndDontSave;
+            var pixels = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    int inside = 0;
+                    for (int sy = 0; sy < samplesPerAxis; sy++)
+                    {
+                        for (int sx = 0; sx < samplesPerAxis; sx++)
+                        {
+                            float px = x + (sx + 0.5f) / samplesPerAxis;
+                            float py = y + (sy + 0.5f) / samplesPerAxis;
+                            float nx = (px - 16f) / 11f;
+                            float ny = (py - 14.5f) / 11f;
+                            float sum = nx * nx + ny * ny - 1f;
+                            if (sum * sum * sum - nx * nx * ny * ny * ny <= 0f)
+                            {
+                                inside++;
+                            }
+                        }
+                    }
+                    pixels[y * size + x] = new Color32(255, 255, 255, (byte)(255 * inside / (samplesPerAxis * samplesPerAxis)));
+                }
+            }
+            texture.SetPixels32(pixels);
+            texture.Apply(false, true);
+            _heartTexture = texture;
+            return _heartTexture;
         }
 
         /// <summary>语言切换时刷新分类按钮的文字与字体（按钮 label 在创建时按当时语言固化）。</summary>
@@ -356,6 +419,15 @@ namespace ItemSpawnerEnhancement
                 if (font != null)
                 {
                     label.font = font;
+                }
+            }
+            // 收藏按钮文字/字体随语言刷新
+            if (_favoriteButtonLabel != null)
+            {
+                _favoriteButtonLabel.text = Loc.Get("catFavorite");
+                if (font != null)
+                {
+                    _favoriteButtonLabel.font = font;
                 }
             }
         }
@@ -398,7 +470,95 @@ namespace ItemSpawnerEnhancement
             {
                 CreateCategoryButton(barRt, majors[i], font);
             }
+            // 收藏筛选按钮：独立于分类单选，可叠加
+            CreateFavoriteButton(barRt, font);
             return barRt;
+        }
+
+        /// <summary>收藏筛选按钮（分类条末尾，独立 toggle，暖卡纸配色）。</summary>
+        private static void CreateFavoriteButton(RectTransform parent, TMP_FontAsset font)
+        {
+            GameObject go = new GameObject("FavButton", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
+            RectTransform rt = go.GetComponent<RectTransform>();
+            rt.SetParent(parent, false);
+            rt.sizeDelta = new Vector2(0f, 50f);
+
+            Image image = go.GetComponent<Image>();
+            image.sprite = null;
+            image.color = ColorIdle;
+            image.raycastTarget = true;
+
+            Button button = go.GetComponent<Button>();
+            button.targetGraphic = image;
+            button.transition = Selectable.Transition.None;
+
+            Outline outline = go.AddComponent<Outline>();
+            outline.effectColor = ColorBorder;
+            outline.effectDistance = new Vector2(1f, 1f);
+
+            button.onClick.AddListener(OnFavoriteToggled);
+
+            // 悬停反馈（与分类按钮一致，仅非选中态提亮）
+            EventTrigger trigger = go.AddComponent<EventTrigger>();
+            EventTrigger.Entry enter = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
+            enter.callback.AddListener(delegate { if (!_favoritesOnly) image.color = ColorHover; });
+            EventTrigger.Entry exit = new EventTrigger.Entry { eventID = EventTriggerType.PointerExit };
+            exit.callback.AddListener(delegate { RefreshFavoriteButtonColor(); });
+            trigger.triggers.Add(enter);
+            trigger.triggers.Add(exit);
+
+            // 标签
+            GameObject labelGo = new GameObject("Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+            labelGo.transform.SetParent(go.transform, false);
+            RectTransform lrt = labelGo.GetComponent<RectTransform>();
+            lrt.anchorMin = Vector2.zero;
+            lrt.anchorMax = Vector2.one;
+            lrt.offsetMin = Vector2.zero;
+            lrt.offsetMax = Vector2.zero;
+
+            TextMeshProUGUI text = labelGo.GetComponent<TextMeshProUGUI>();
+            text.font = font;
+            text.enableAutoSizing = true;
+            text.fontSizeMin = 14f;
+            text.fontSizeMax = 22f;
+            text.fontSize = 22f;
+            text.fontStyle = FontStyles.UpperCase;
+            text.alignment = TextAlignmentOptions.Center;
+            text.textWrappingMode = TextWrappingModes.NoWrap;
+            text.color = ColorTextIdle;
+            text.raycastTarget = false;
+            text.outlineWidth = 0f;
+            text.text = Loc.Get("catFavorite");
+
+            _favoriteButton = button;
+            _favoriteButtonLabel = text;
+        }
+
+        private static void OnFavoriteToggled()
+        {
+            _favoritesOnly = !_favoritesOnly;
+            RefreshFavoriteButtonColor();
+            if (_view != null)
+            {
+                _view.SetFavoritesOnly(_favoritesOnly);
+            }
+        }
+
+        private static void RefreshFavoriteButtonColor()
+        {
+            if (_favoriteButton == null)
+            {
+                return;
+            }
+            Image image = _favoriteButton.targetGraphic as Image;
+            if (image != null)
+            {
+                image.color = _favoritesOnly ? ColorSelected : ColorIdle;
+            }
+            if (_favoriteButtonLabel != null)
+            {
+                _favoriteButtonLabel.color = _favoritesOnly ? ColorTextSelected : ColorTextIdle;
+            }
         }
 
         private static void CreateCategoryButton(RectTransform parent, MajorCategory major, TMP_FontAsset font)
