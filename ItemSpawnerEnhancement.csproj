@@ -20,8 +20,8 @@
       <HintPath>D:\SteamLibrary\steamapps\common\PEAK\BepInEx\core\0Harmony.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="com.quackandcheese.ItemSpawner">
-      <HintPath>D:\zhuanban\kuozhan\mod\plugins\com.quackandcheese.ItemSpawner.dll</HintPath>
+    <Reference Include="Unity.InputSystem">
+      <HintPath>D:\SteamLibrary\steamapps\common\PEAK\PEAK_Data\Managed\Unity.InputSystem.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Assembly-CSharp">

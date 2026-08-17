@@ -4,15 +4,16 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
-using Zorro.Core;
 
 namespace ItemSpawnerEnhancement
 {
     /// <summary>
-    /// UI 增强：
-    /// 1. 搜索框移到模组菜单顶部居中并扩大；
-    /// 2. 搜索框下方新增横向分类按钮条（全部/工具/食物/神秘/装备/消耗品/场景），浅色暖卡纸风：浅米棕底 + 浅暖棕描边 + 深暖棕文字，悬停提亮、选中变最浅的暖黄高亮；
-    /// 3. 挂载 ItemListView（本地化显示名 + 中文/拼音搜索 + 多标签分类过滤与排序）。
+    /// UI 构建器（纯代码，不依赖 AssetBundle）：
+    /// 1. 根 Canvas + 暖卡纸面板；
+    /// 2. 顶部居中放大的搜索框；
+    /// 3. 搜索框下方横向分类按钮条（全部/工具/食物/神秘/装备/消耗品/场景），浅色暖卡纸风；
+    /// 4. 滚动列表（VerticalLayoutGroup）+ 条目模板（Button + ItemIcon + ItemName）；
+    /// 5. 挂载 ItemListView（本地化显示名 + 中文/拼音搜索 + 多标签分类过滤与排序）。
     /// </summary>
     public static class UiEnhancer
     {
@@ -30,7 +31,11 @@ namespace ItemSpawnerEnhancement
         private static readonly Color ColorTextIdle = new Color(0.28f, 0.21f, 0.14f, 1f);    // 默认/悬停文字：深暖棕（浅色底上高对比）
         private static readonly Color ColorTextSelected = new Color(0.22f, 0.16f, 0.10f, 1f); // 选中文字：更深的暖棕（最浅选中底上更稳）
 
-        public static void Setup(ItemSpawner.ItemSpawnerWindow window)
+        // 面板底色（暖卡纸）：比分类按钮略深一档，衬托按钮与条目。
+        private static readonly Color PanelBackground = new Color(0.76f, 0.69f, 0.56f, 1f);
+
+        /// <summary>构建入口：接收 ItemSpawnerPlusWindow，创建完整 UI 树并挂载 ItemListView。</summary>
+        public static void Setup(ItemSpawnerPlusWindow window)
         {
             if (window == null)
             {
@@ -38,85 +43,302 @@ namespace ItemSpawnerEnhancement
                 return;
             }
             // 幂等：该窗口已成功 Setup（ItemListView.Initialized），避免重复创建分类条/条目。
-            // 仅当 Init 成功置位后才视为已接管；未 Initialized 的残留 view 会继续走下方复用分支。
             ItemListView existing = window.GetComponent<ItemListView>();
             if (existing != null && existing.Initialized)
             {
                 return;
             }
-            Transform canvas = window.panel.transform;
 
-            Transform searchGo = canvas.FindChildRecursive("SearchBar");
-            Transform scrollViewGo = canvas.FindChildRecursive("Scroll View");
-            Transform contentGo = canvas.FindChildRecursive("Content");
-            Transform template = canvas.FindChildRecursive("ItemEntry");
-            if (searchGo == null || scrollViewGo == null || contentGo == null || template == null)
+            // 1. 根 Canvas / CanvasScaler / GraphicRaycaster（幂等）
+            EnsureCanvas(window);
+
+            // 2. 构建 UI 树（panelRect 已存在则复用，不重复构建）
+            if (window.panelRect == null)
             {
-                Plugin.Log.LogError("ItemSpawnerPlus: UI nodes not found, abort setup. "
-                    + "原模组列表填充逻辑将保持启用（避免窗口空白）。");
-                return;
+                Build(window);
             }
-            TMP_InputField searchInput = searchGo.GetComponent<TMP_InputField>();
 
-            // 1. 搜索框：顶部居中、加宽加高（高 50，占 12~62px）
-            RectTransform panelRt = scrollViewGo.parent as RectTransform; // Panel
-            RectTransform sbRt = searchGo as RectTransform;
-            sbRt.anchorMin = new Vector2(0.5f, 1f);
-            sbRt.anchorMax = new Vector2(0.5f, 1f);
-            sbRt.pivot = new Vector2(0.5f, 1f);
-            sbRt.anchoredPosition = new Vector2(0f, -12f);
-            float panelWidth = (panelRt != null) ? panelRt.rect.width : 900f;
-            sbRt.sizeDelta = new Vector2(panelWidth * 0.86f, 50f);
-
-            // 2. Scroll View 下移并收窄高度，为顶部搜索框 + 分类条让位。
-            //    搜索框高 50 位于 12~62px，分类条高 50 位于 68~118px，
-            //    Scroll View 顶部缩进 = 46 + 148/2 = 120px（分类条底 118 + 2px 间距）。
-            RectTransform svRt = scrollViewGo as RectTransform;
-            svRt.anchoredPosition = new Vector2(0f, -46f);
-            svRt.sizeDelta = new Vector2(-26f, -148f);
-
-            // 3. 分类按钮条（位于搜索框与滚动列表之间，高 50，占 68~118px）
-            Transform bar = CreateCategoryBar(panelRt, sbRt);
-
-            // 4. 挂载列表视图（若窗口重开则复用；复用未 Initialized 的残留 view 而非无条件 AddComponent）
-            _view = existing; // 可能是未 Initialized 的残留（上次 Init 失败）
+            // 3. 挂载列表视图（复用未 Initialized 的残留 view 而非无条件 AddComponent）
+            _view = existing;
             if (_view == null)
             {
                 _view = window.gameObject.AddComponent<ItemListView>();
             }
             try
             {
-                _view.Init(contentGo, template, searchInput, OnMajorSelected);
+                _view.Init(window.content, window.template, window.searchInput, OnMajorSelected);
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 Plugin.Log.LogError("ItemSpawnerPlus: ItemListView.Init 失败，已回滚: " + ex);
                 if (_view != null)
                 {
-                    _view.Stop();  // 退订搜索监听 + 语言事件（OnDestroy 也会退订语言，这里显式清理）
+                    _view.Stop();  // 退订搜索监听 + 语言事件
                     UnityEngine.Object.Destroy(_view);
                     _view = null;
                 }
                 return;
             }
 
-            // 5. 全部接管步骤（搜索框布局、Scroll View、分类条、ItemListView.Init）成功之后，
-            //    才移除原 SearchScript 并清空搜索框旧监听（原逻辑只做英文前缀匹配）。
-            //    若中途失败（异常或节点缺失），原逻辑及其搜索保持完整，避免"列表由原逻辑填充但搜索/分类残废"的半坏状态。
-            //    注意：清空会连同 ItemListView 刚挂接的监听一起移除，因此需重新挂接。
-            ItemSpawner.SearchScript oldSearch = window.GetComponent<ItemSpawner.SearchScript>();
-            if (oldSearch != null)
+            // 4. 刷新分类按钮选中态
+            OnMajorSelected(MajorCategory.All);
+        }
+
+        private static void EnsureCanvas(ItemSpawnerPlusWindow window)
+        {
+            Canvas canvas = window.GetComponent<Canvas>();
+            if (canvas == null)
             {
-                UnityEngine.Object.Destroy(oldSearch);
+                canvas = window.gameObject.AddComponent<Canvas>();
             }
-            if (searchInput != null)
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 250;
+
+            CanvasScaler scaler = window.GetComponent<CanvasScaler>();
+            if (scaler == null)
             {
-                searchInput.onValueChanged.RemoveAllListeners();
-                _view.SubscribeSearchInput();
+                scaler = window.gameObject.AddComponent<CanvasScaler>();
+            }
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+            scaler.matchWidthOrHeight = 0.5f;
+
+            if (window.GetComponent<GraphicRaycaster>() == null)
+            {
+                window.gameObject.AddComponent<GraphicRaycaster>();
             }
 
-            // 6. 刷新分类按钮选中态
-            OnMajorSelected(MajorCategory.All);
+            // 根 RectTransform 拉伸到全屏
+            RectTransform root = window.GetComponent<RectTransform>();
+            root.anchorMin = Vector2.zero;
+            root.anchorMax = Vector2.one;
+            root.offsetMin = Vector2.zero;
+            root.offsetMax = Vector2.zero;
+        }
+
+        private static void Build(ItemSpawnerPlusWindow window)
+        {
+            RectTransform root = window.GetComponent<RectTransform>();
+
+            RectTransform panelRt = CreatePanel(root);
+            window.panelRect = panelRt;
+
+            TMP_FontAsset font = ResolveFont();
+
+            TMP_InputField searchInput = CreateSearchInput(panelRt, font);
+            window.searchInput = searchInput;
+
+            // 先建滚动列表（含条目模板），再建分类条（分类条 SetAsLastSibling 置于最上层，保证可点击）
+            RectTransform content;
+            CreateScrollView(panelRt, out content);
+            window.content = content;
+
+            Transform template = CreateItemEntryTemplate(content, font);
+            window.template = template;
+
+            CreateCategoryBar(panelRt, (RectTransform)searchInput.transform);
+        }
+
+        private static TMP_FontAsset ResolveFont()
+        {
+            return ItemListView.NeedsCjkFont() ? ItemListView.GetGameBaseFont() : ItemListView.FindFont("DarumaDropOne-Regular SDF");
+        }
+
+        private static RectTransform CreatePanel(RectTransform root)
+        {
+            GameObject go = new GameObject("Panel", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            RectTransform rt = (RectTransform)go.transform;
+            rt.SetParent(root, false);
+            rt.anchorMin = new Vector2(0.18f, 0.18f);
+            rt.anchorMax = new Vector2(0.82f, 0.82f);
+            rt.offsetMin = Vector2.zero;
+            rt.offsetMax = Vector2.zero;
+
+            Image bg = go.GetComponent<Image>();
+            bg.sprite = null;
+            bg.color = PanelBackground;
+            bg.raycastTarget = true;
+            return rt;
+        }
+
+        /// <summary>搜索框：顶部居中、加宽加高（高 50，占 12~62px）。</summary>
+        private static TMP_InputField CreateSearchInput(RectTransform panel, TMP_FontAsset font)
+        {
+            GameObject go = new GameObject("SearchInput", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(TMP_InputField));
+            RectTransform rt = (RectTransform)go.transform;
+            rt.SetParent(panel, false);
+            rt.anchorMin = new Vector2(0.5f, 1f);
+            rt.anchorMax = new Vector2(0.5f, 1f);
+            rt.pivot = new Vector2(0.5f, 1f);
+            rt.anchoredPosition = new Vector2(0f, -12f);
+            float panelWidth = (panel != null) ? panel.rect.width : 900f;
+            rt.sizeDelta = new Vector2(panelWidth * 0.86f, 50f);
+
+            Image bg = go.GetComponent<Image>();
+            bg.sprite = null;
+            bg.color = new Color(0.72f, 0.64f, 0.52f, 1f); // 略深于面板的暖卡其输入底色
+            bg.raycastTarget = true;
+
+            // 文本显示区（RectMask2D 裁剪超长输入）
+            GameObject areaGo = new GameObject("Text Area", typeof(RectTransform), typeof(CanvasRenderer), typeof(RectMask2D));
+            RectTransform areaRt = (RectTransform)areaGo.transform;
+            areaRt.SetParent(rt, false);
+            areaRt.anchorMin = Vector2.zero;
+            areaRt.anchorMax = Vector2.one;
+            areaRt.offsetMin = new Vector2(14f, 5f);
+            areaRt.offsetMax = new Vector2(-14f, -5f);
+
+            // 占位符
+            GameObject phGo = new GameObject("Placeholder", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+            RectTransform phRt = (RectTransform)phGo.transform;
+            phRt.SetParent(areaRt, false);
+            phRt.anchorMin = Vector2.zero;
+            phRt.anchorMax = Vector2.one;
+            phRt.offsetMin = Vector2.zero;
+            phRt.offsetMax = Vector2.zero;
+            TextMeshProUGUI placeholder = phGo.GetComponent<TextMeshProUGUI>();
+            placeholder.font = font;
+            placeholder.fontSize = 24f;
+            placeholder.fontStyle = FontStyles.Italic;
+            placeholder.color = new Color(0.45f, 0.37f, 0.28f, 0.6f);
+            placeholder.text = ItemListView.IsChineseLanguage() ? "搜索..." : "Search...";
+            placeholder.alignment = TextAlignmentOptions.MidlineLeft;
+            placeholder.raycastTarget = false;
+
+            // 输入文本
+            GameObject textGo = new GameObject("Text", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+            RectTransform textRt = (RectTransform)textGo.transform;
+            textRt.SetParent(areaRt, false);
+            textRt.anchorMin = Vector2.zero;
+            textRt.anchorMax = Vector2.one;
+            textRt.offsetMin = Vector2.zero;
+            textRt.offsetMax = Vector2.zero;
+            TextMeshProUGUI text = textGo.GetComponent<TextMeshProUGUI>();
+            text.font = font;
+            text.fontSize = 24f;
+            text.color = ColorTextIdle;
+            text.alignment = TextAlignmentOptions.MidlineLeft;
+            text.textWrappingMode = TextWrappingModes.NoWrap;
+            text.raycastTarget = false;
+
+            TMP_InputField input = go.GetComponent<TMP_InputField>();
+            input.textViewport = areaRt;
+            input.textComponent = text;
+            input.placeholder = placeholder;
+            input.lineType = TMP_InputField.LineType.SingleLine;
+            return input;
+        }
+
+        /// <summary>滚动列表：ScrollRect + Viewport + Content（VerticalLayoutGroup 自增高）。</summary>
+        private static void CreateScrollView(RectTransform panel, out RectTransform content)
+        {
+            GameObject scrollGo = new GameObject("ScrollView", typeof(RectTransform), typeof(ScrollRect));
+            RectTransform scrollRt = (RectTransform)scrollGo.transform;
+            scrollRt.SetParent(panel, false);
+            scrollRt.anchorMin = Vector2.zero;
+            scrollRt.anchorMax = Vector2.one;
+            scrollRt.pivot = new Vector2(0.5f, 0.5f);
+            // 顶部缩进 130px，为顶部搜索框（12~62px）+ 分类条（68~118px）让位
+            scrollRt.offsetMin = new Vector2(20f, 20f);
+            scrollRt.offsetMax = new Vector2(-20f, -130f);
+
+            GameObject viewportGo = new GameObject("Viewport", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Mask));
+            RectTransform viewportRt = (RectTransform)viewportGo.transform;
+            viewportRt.SetParent(scrollRt, false);
+            viewportRt.anchorMin = Vector2.zero;
+            viewportRt.anchorMax = Vector2.one;
+            viewportRt.offsetMin = Vector2.zero;
+            viewportRt.offsetMax = Vector2.zero;
+            Image viewportImg = viewportGo.GetComponent<Image>();
+            viewportImg.sprite = null;
+            viewportImg.color = new Color(1f, 1f, 1f, 0.01f);
+            Mask mask = viewportGo.GetComponent<Mask>();
+            mask.showMaskGraphic = false;
+
+            GameObject contentGo = new GameObject("Content", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter));
+            RectTransform contentRt = (RectTransform)contentGo.transform;
+            contentRt.SetParent(viewportRt, false);
+            contentRt.anchorMin = new Vector2(0f, 1f);
+            contentRt.anchorMax = new Vector2(1f, 1f);
+            contentRt.pivot = new Vector2(0.5f, 1f);
+            contentRt.anchoredPosition = Vector2.zero;
+            contentRt.sizeDelta = Vector2.zero;
+
+            VerticalLayoutGroup vlg = contentGo.GetComponent<VerticalLayoutGroup>();
+            vlg.childAlignment = TextAnchor.UpperCenter;
+            vlg.spacing = 4f;
+            vlg.padding = new RectOffset(4, 4, 4, 4);
+            vlg.childControlWidth = true;
+            vlg.childControlHeight = true;
+            vlg.childForceExpandWidth = true;
+            vlg.childForceExpandHeight = false;
+
+            ContentSizeFitter csf = contentGo.GetComponent<ContentSizeFitter>();
+            csf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+            csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            ScrollRect scroll = scrollGo.GetComponent<ScrollRect>();
+            scroll.viewport = viewportRt;
+            scroll.content = contentRt;
+            scroll.horizontal = false;
+            scroll.vertical = true;
+            scroll.movementType = ScrollRect.MovementType.Clamped;
+            scroll.scrollSensitivity = 40f;
+
+            content = contentRt;
+        }
+
+        /// <summary>
+        /// 条目模板：根有 Button，子节点命名必须为 "ItemName"（TextMeshProUGUI）与 "ItemIcon"（RawImage），
+        /// 这是 ItemListView.Rebuild 依赖的结构。
+        /// </summary>
+        private static Transform CreateItemEntryTemplate(Transform content, TMP_FontAsset font)
+        {
+            GameObject go = new GameObject("ItemEntry", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button), typeof(LayoutElement));
+            RectTransform rt = (RectTransform)go.transform;
+            rt.SetParent(content, false);
+            rt.sizeDelta = new Vector2(0f, 56f);
+
+            LayoutElement layout = go.GetComponent<LayoutElement>();
+            layout.preferredHeight = 56f;
+            layout.flexibleWidth = 1f;
+
+            Image bg = go.GetComponent<Image>();
+            bg.sprite = null;
+            bg.color = new Color(1f, 1f, 1f, 0.06f); // 浅色面板上的微反衬条目底色
+            bg.raycastTarget = true;
+
+            Button button = go.GetComponent<Button>();
+            button.targetGraphic = bg;
+            button.transition = Selectable.Transition.None;
+
+            GameObject iconGo = new GameObject("ItemIcon", typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage));
+            RectTransform iconRt = (RectTransform)iconGo.transform;
+            iconRt.SetParent(rt, false);
+            iconRt.anchorMin = new Vector2(0f, 0.5f);
+            iconRt.anchorMax = new Vector2(0f, 0.5f);
+            iconRt.pivot = new Vector2(0f, 0.5f);
+            iconRt.anchoredPosition = new Vector2(10f, 0f);
+            iconRt.sizeDelta = new Vector2(48f, 48f);
+            RawImage icon = iconGo.GetComponent<RawImage>();
+            icon.raycastTarget = false;
+
+            GameObject nameGo = new GameObject("ItemName", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+            RectTransform nameRt = (RectTransform)nameGo.transform;
+            nameRt.SetParent(rt, false);
+            nameRt.anchorMin = Vector2.zero;
+            nameRt.anchorMax = Vector2.one;
+            nameRt.offsetMin = new Vector2(66f, 4f);
+            nameRt.offsetMax = new Vector2(-10f, -4f);
+            TextMeshProUGUI name = nameGo.GetComponent<TextMeshProUGUI>();
+            name.font = font;
+            name.fontSize = 22f;
+            name.color = ColorTextIdle;
+            name.alignment = TextAlignmentOptions.MidlineLeft;
+            name.raycastTarget = false;
+
+            return rt;
         }
 
         /// <summary>语言切换时刷新分类按钮的文字与字体（按钮 label 在创建时按当时语言固化）。</summary>
@@ -280,23 +502,6 @@ namespace ItemSpawnerEnhancement
             {
                 RefreshButtonColor(i);
             }
-        }
-
-        private static Sprite FindSprite(string name)
-        {
-            Sprite[] all = Resources.FindObjectsOfTypeAll<Sprite>();
-            if (all == null)
-            {
-                return null;
-            }
-            for (int i = 0; i < all.Length; i++)
-            {
-                if (all[i] != null && all[i].name == name)
-                {
-                    return all[i];
-                }
-            }
-            return null;
         }
     }
 }

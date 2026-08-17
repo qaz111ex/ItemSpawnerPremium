@@ -461,7 +461,7 @@ namespace ItemSpawnerEnhancement
             }
             try
             {
-                ItemSpawner.Plugin.Spawn(item);
+                ItemSpawnerPlusWindow.Spawn(item);
             }
             catch (Exception ex)
             {

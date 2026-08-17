@@ -1,95 +1,87 @@
 using System;
 using System.Reflection;
 using BepInEx;
+using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 using Photon.Pun;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace ItemSpawnerEnhancement
 {
-    [BepInPlugin("com.itemspawnerplus.ItemSpawnerPlus", "ItemSpawnerPlus", "1.2.0")]
-    [BepInDependency("com.quackandcheese.ItemSpawner")]
+    [BepInPlugin("com.itemspawnerplus.ItemSpawnerPlus", "ItemSpawnerPlus", "2.0.0")]
     public class Plugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log { get; private set; }
 
-        /// <summary>判断窗口是否已成功 Setup（挂有 ItemListView 且其 Init 已成功执行）。</summary>
-        private static bool IsWindowSetup(ItemSpawner.ItemSpawnerWindow window)
-        {
-            ItemListView view = window.GetComponent<ItemListView>();
-            return view != null && view.Initialized;
-        }
+        /// <summary>窗口静态引用，供 Update（F5 轮询）/ Warmup 使用。</summary>
+        internal static ItemSpawnerPlusWindow Window { get; private set; }
+
+        private static ConfigEntry<Key> _toggleKey;
 
         private void Awake()
         {
             Log = Logger;
+
+            _toggleKey = Config.Bind<Key>(
+                "General",
+                "ToggleKey",
+                Key.F5,
+                "打开/关闭物品生成器窗口的按键（Unity.InputSystem.Key 枚举值）。");
+
             Harmony harmony = new Harmony("com.itemspawnerplus.ItemSpawnerPlus");
             harmony.PatchAll(Assembly.GetExecutingAssembly());
-            Log.LogInfo("ItemSpawner Enhancement loaded!");
+            Log.LogInfo("ItemSpawnerPlus loaded!");
 
-            // 面板预热：在加载阶段提前执行一次 UiEnhancer.Setup，消除首次 F5 卡顿。
+            // 面板预热：常驻轮询驱动器（跨场景复用，消除首次 F5 卡顿）。
             GameObject warmupGo = new GameObject("ItemSpawnerPlusWarmup");
             UnityEngine.Object.DontDestroyOnLoad(warmupGo);
             warmupGo.AddComponent<Warmup>();
         }
 
-        /// <summary>
-        /// 接管 ItemSpawner 的 ItemSpawnerWindow.Initialize：
-        /// Prefix 在原始 body 之前完成 UI 接管——原始 Initialize 方法体内先调用 RefreshEntries，
-        /// 其 Prefix 检查窗口是否已成功 Setup（ItemListView.Initialized）；若放在 Postfix 才 Setup，
-        /// 首窗口总会先跑一遍原逻辑（双重填充）。
-        /// Postfix 仅销毁原始 body 新增的 SearchScript（接管成功后原搜索逻辑已冗余）。
-        /// </summary>
-        [HarmonyPatch(typeof(ItemSpawner.ItemSpawnerWindow), nameof(ItemSpawner.ItemSpawnerWindow.Initialize))]
-        private static class Patch_Initialize
+        /// <summary>每帧轮询 ToggleKey，触发窗口显隐切换。</summary>
+        private void Update()
         {
-            private static void Prefix(ItemSpawner.ItemSpawnerWindow __instance)
+            Keyboard keyboard = Keyboard.current;
+            if (Window == null || keyboard == null || _toggleKey == null || _toggleKey.Value == Key.None)
             {
-                // 实例级判断：该窗口是否已成功 Setup（ItemListView.Initialized）。
-                // 不依赖 Destroy 延迟语义（Init 失败回滚的 Destroy 同帧内 GetComponent 仍返回残留组件，
-                // 会误判"已 Setup"），因此以 Initialized 标志为可靠依据。
-                if (IsWindowSetup(__instance))
+                return;
+            }
+            if (keyboard[_toggleKey.Value].wasPressedThisFrame)
+            {
+                ItemSpawnerPlusWindow.ToggleWindow(Window);
+            }
+        }
+
+        /// <summary>
+        /// 在 GUIManager.Start 之后创建独立窗口（DontDestroyOnLoad，跨场景复用，仅创建一次）。
+        /// </summary>
+        [HarmonyPatch(typeof(GUIManager), "Start")]
+        private static class Patch_GUIManager_Start
+        {
+            private static void Postfix()
+            {
+                if (Window != null)
                 {
                     return;
                 }
                 try
                 {
-                    UiEnhancer.Setup(__instance);
+                    CreateWindow();
                 }
-                catch (System.Exception ex)
+                catch (Exception ex)
                 {
-                    Log.LogError("ItemSpawner Enhancement failed during Initialize prefix: " + ex);
-                }
-            }
-
-            private static void Postfix(ItemSpawner.ItemSpawnerWindow __instance)
-            {
-                // 仅当接管成功（ItemListView.Initialized）才销毁原 SearchScript；Setup 失败时保留原搜索逻辑作为回退。
-                if (!IsWindowSetup(__instance))
-                {
-                    return;
-                }
-                ItemSpawner.SearchScript old = __instance.GetComponent<ItemSpawner.SearchScript>();
-                if (old != null)
-                {
-                    UnityEngine.Object.Destroy(old);
+                    Log.LogError("ItemSpawnerPlus: 创建窗口失败: " + ex);
                 }
             }
         }
 
-        /// <summary>
-        /// 接管 RefreshEntries：仅当窗口已成功 Setup（ItemListView.Initialized）后才禁用原逻辑，
-        /// 否则回退到原模组的填充逻辑，避免 Setup 失败时窗口永久空白。
-        /// </summary>
-        [HarmonyPatch(typeof(ItemSpawner.ItemSpawnerWindow), nameof(ItemSpawner.ItemSpawnerWindow.RefreshEntries))]
-        private static class Patch_RefreshEntries
+        private static void CreateWindow()
         {
-            private static bool Prefix(ItemSpawner.ItemSpawnerWindow __instance)
-            {
-                // 该窗口已成功 Setup（ItemListView.Initialized）则跳过原 RefreshEntries；否则走原逻辑兜底
-                return !IsWindowSetup(__instance);
-            }
+            GameObject go = new GameObject("ItemSpawnerPlus", typeof(RectTransform));
+            UnityEngine.Object.DontDestroyOnLoad(go);
+            Window = go.AddComponent<ItemSpawnerPlusWindow>();
         }
 
         /// <summary>

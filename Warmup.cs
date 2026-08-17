@@ -14,9 +14,8 @@ namespace ItemSpawnerEnhancement
     /// 全部提前到加载阶段，消除首次 F5 打开面板时的明显卡顿。
     ///
     /// 常驻（不 Destroy）：<see cref="Update"/> 每 0.5 秒轮询一次；
-    /// <see cref="_lastWarmedWindow"/> 记录已处理（含已 Setup / 已失败）的窗口实例，
-    /// 切场景后 <see cref="UnityEngine.Object.FindObjectOfType{T}"/> 返回新实例（Unity == 比较不同实例为 false）
-    /// → 自动触发新窗口的预热；<see cref="_primingRunning"/> 防止渲染 priming 协程并发。
+    /// 窗口是 DontDestroyOnLoad 单例（全程只有一个实例），预热过一次后由 <see cref="_warmed"/> 标志跳过，
+    /// 不会因切场景重建；<see cref="_primingRunning"/> 防止渲染 priming 协程并发。
     /// 渲染 priming 门槛为 <see cref="LoadingScreenHandler.loading"/>（public static bool，覆盖
     /// "等角色生成 + 3 秒 extraYieldTime + 加载屏幕淡出"全程），此期间 panel 被加载屏幕遮挡、激活不闪烁。
     /// </summary>
@@ -24,7 +23,7 @@ namespace ItemSpawnerEnhancement
     {
         private float _nextCheckTime;
         private bool _primingRunning;                              // 渲染 priming 协程运行中，防并发
-        private ItemSpawner.ItemSpawnerWindow _lastWarmedWindow;   // 已处理过的窗口（跨场景去重）
+        private bool _warmed;                                      // 已预热过（窗口是 DontDestroyOnLoad 单例，预热一次即可）
 
         private void Update()
         {
@@ -44,24 +43,23 @@ namespace ItemSpawnerEnhancement
                 return; // 上次协程未结束
             }
 
-#pragma warning disable CS0618 // FindObjectOfType 在本游戏运行时仍受支持，且为任务指定 API
-            ItemSpawner.ItemSpawnerWindow window = UnityEngine.Object.FindObjectOfType<ItemSpawner.ItemSpawnerWindow>();
-#pragma warning restore CS0618
-            if (window == null)
+            if (_warmed)
             {
-                return; // 场景切换中，等新窗口
+                return; // 已预热过（含已 Setup / 已失败，失败也不重试，F5 时由 Initialize 兜底）
             }
 
-            if (window == _lastWarmedWindow)
+            // 窗口是 DontDestroyOnLoad 单例且默认 inactive，FindObjectOfType 找不到，直接取 Plugin.Window 静态引用
+            ItemSpawnerPlusWindow window = Plugin.Window;
+            if (window == null)
             {
-                return; // 该窗口已处理（含已 Setup/已失败），跨场景后新实例 != 旧实例会自动触发
+                return; // 窗口尚未创建（GUIManager.Start 还没跑），等下一轮
             }
 
             ItemListView view = window.GetComponent<ItemListView>();
             if (view != null && view.Initialized)
             {
                 // 已被别处（F5 兜底）Setup，标记为已处理即可
-                _lastWarmedWindow = window;
+                _warmed = true;
                 return;
             }
 
@@ -76,8 +74,8 @@ namespace ItemSpawnerEnhancement
                 return;
             }
 
-            // 先标记，失败也不重试同一窗口（F5 时由 Initialize 兜底）
-            _lastWarmedWindow = window;
+            // 先标记，失败也不重试（F5 时由 Initialize 兜底）
+            _warmed = true;
 
             // (1) CPU 预热：同步 Setup
             try
@@ -98,7 +96,7 @@ namespace ItemSpawnerEnhancement
             }
         }
 
-        private IEnumerator PrimingRoutine(ItemSpawner.ItemSpawnerWindow window)
+        private IEnumerator PrimingRoutine(ItemSpawnerPlusWindow window)
         {
             try
             {
@@ -119,7 +117,12 @@ namespace ItemSpawnerEnhancement
 
             try
             {
-                window.panel.SetActive(false);
+                // 若 priming 期间玩家恰好按 F5 打开了窗口（isOpen==true），不要硬隐藏，
+                // 避免"逻辑已打开但面板不可见"的错位。
+                if (!window.isOpen)
+                {
+                    window.panel.SetActive(false);
+                }
                 Canvas.ForceUpdateCanvases();
                 Plugin.Log.LogInfo("ItemSpawnerPlus: 渲染 priming 完成");
             }
