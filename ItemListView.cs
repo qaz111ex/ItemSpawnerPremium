@@ -435,7 +435,8 @@ namespace ItemSpawnerEnhancement
                 // 右键收藏：挂 IPointerClickHandler 监听右键，切换收藏并重建
                 ItemFavoriteTrigger ft = clone.gameObject.AddComponent<ItemFavoriteTrigger>();
                 string capturedPrefab = entry.prefabName;
-                ft.Configure(() => ToggleFavorite(capturedPrefab));
+                Transform capturedFav = clone.Find("Favorite");
+                ft.Configure(() => ToggleFavorite(capturedPrefab, capturedFav));
                 ft.InteractionEnabled = true;
 
                 // 心形标记：收藏时显示
@@ -506,13 +507,25 @@ namespace ItemSpawnerEnhancement
             return 0;
         }
 
-        /// <summary>切换物品收藏（右键触发），成功后重建列表以刷新心形标记与筛选。</summary>
-        private void ToggleFavorite(string prefabName)
+        /// <summary>切换物品收藏（右键触发）。筛选关闭时仅局部更新心形，避免全量重建导致滚动位置重置。</summary>
+        private void ToggleFavorite(string prefabName, Transform favoriteMarker)
         {
             bool isFav;
             if (Plugin.Favorites.TryToggle(prefabName, out isFav))
             {
-                Rebuild();
+                if (_favoritesOnly)
+                {
+                    // 收藏筛选开启时，列表成员会变，需全量重建
+                    Rebuild();
+                }
+                else
+                {
+                    // 筛选关闭时，仅更新该条目心形，避免全量重建导致滚动位置重置
+                    if (favoriteMarker != null)
+                    {
+                        favoriteMarker.gameObject.SetActive(isFav);
+                    }
+                }
             }
         }
 

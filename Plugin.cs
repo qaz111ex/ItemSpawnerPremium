@@ -27,6 +27,9 @@ namespace ItemSpawnerEnhancement
         {
             Log = Logger;
 
+            // BepInEx 5.x 的 ConfigEntry.Value setter 不会自动写盘，开启后每次赋值立即持久化到磁盘
+            Config.SaveOnConfigSet = true;
+
             _toggleKey = Config.Bind<Key>(
                 "General",
                 "ToggleKey",
