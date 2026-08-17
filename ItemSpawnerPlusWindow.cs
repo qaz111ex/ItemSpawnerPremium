@@ -43,6 +43,16 @@ namespace ItemSpawnerEnhancement
         protected override void Initialize()
         {
             base.Initialize();
+        }
+
+        protected override void OnOpen()
+        {
+            base.OnOpen();
+            // Setup 放在 OnOpen（每次 Open 都调用）而非 Initialize（仅首次 Open 调用）：
+            // MenuWindow.Open 首次调用 Initialize 后置 initialized=true，若首次 Setup 因
+            // ItemDatabase 未就绪失败（BuildCatalog 抛异常被 Setup 吞掉），后续 Open 不会重调
+            // Initialize，F5 兜底会失效。OnOpen 每次都调用，配合 Setup 的幂等守卫
+            // （existing.Initialized），实现真正的 F5 兜底。
             UiEnhancer.Setup(this);
         }
 
