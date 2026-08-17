@@ -341,7 +341,7 @@ namespace ItemSpawnerEnhancement
                 {
                     placeholder.font = font;
                     placeholder.fontSize = 24f; // 与输入文字字号一致
-                    placeholder.text = IsChineseLanguage() ? "搜索..." : "Search...";
+                    placeholder.text = Loc.Get("searchPlaceholder");
                 }
             }
         }

@@ -202,7 +202,7 @@ namespace ItemSpawnerEnhancement
             placeholder.fontSize = 24f;
             placeholder.fontStyle = FontStyles.Italic;
             placeholder.color = new Color(0.45f, 0.37f, 0.28f, 0.6f);
-            placeholder.text = ItemListView.IsChineseLanguage() ? "搜索..." : "Search...";
+            placeholder.text = Loc.Get("searchPlaceholder");
             placeholder.alignment = TextAlignmentOptions.MidlineLeft;
             placeholder.raycastTarget = false;
 

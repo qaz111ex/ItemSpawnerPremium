@@ -32,19 +32,18 @@ namespace ItemSpawnerEnhancement
             return false;
         }
 
-        /// <summary>一级分类按钮标签（按当前语言返回中/英文）。</summary>
+        /// <summary>一级分类按钮标签（按当前语言本地化）。</summary>
         public static string GetMajorLabel(MajorCategory major)
         {
-            bool zh = ItemListView.IsChineseLanguage();
             switch (major)
             {
-                case MajorCategory.All: return zh ? "全部" : "All";
-                case MajorCategory.Tools: return zh ? "工具" : "Tools";
-                case MajorCategory.Food: return zh ? "食物" : "Food";
-                case MajorCategory.Mystical: return zh ? "神秘" : "Mystical";
-                case MajorCategory.Equipment: return zh ? "装备" : "Equipment";
-                case MajorCategory.Consumables: return zh ? "消耗品" : "Consumables";
-                case MajorCategory.Props: return zh ? "场景" : "Props";
+                case MajorCategory.All: return Loc.Get("catAll");
+                case MajorCategory.Tools: return Loc.Get("catTools");
+                case MajorCategory.Food: return Loc.Get("catFood");
+                case MajorCategory.Mystical: return Loc.Get("catMystical");
+                case MajorCategory.Equipment: return Loc.Get("catEquipment");
+                case MajorCategory.Consumables: return Loc.Get("catConsumables");
+                case MajorCategory.Props: return Loc.Get("catProps");
                 default: return "?";
             }
         }
