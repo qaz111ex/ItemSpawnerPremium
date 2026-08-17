@@ -12,7 +12,7 @@ namespace ItemSpawnerEnhancement
     /// 1. 根 Canvas + 暖卡纸面板；
     /// 2. 顶部居中放大的搜索框；
     /// 3. 搜索框下方横向分类按钮条（全部/工具/食物/神秘/装备/消耗品/场景），浅色暖卡纸风；
-    /// 4. 滚动列表（VerticalLayoutGroup）+ 条目模板（Button + ItemIcon + ItemName）；
+    /// 4. 滚动列表（GridLayoutGroup 正方形网格）+ 条目模板（Button + ItemIcon + ItemName + Favorite）；
     /// 5. 挂载 ItemListView（本地化显示名 + 中文/拼音搜索 + 多标签分类过滤与排序）。
     /// </summary>
     public static class UiEnhancer
@@ -171,12 +171,11 @@ namespace ItemSpawnerEnhancement
             GameObject go = new GameObject("SearchInput", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(TMP_InputField));
             RectTransform rt = (RectTransform)go.transform;
             rt.SetParent(panel, false);
-            rt.anchorMin = new Vector2(0.5f, 1f);
-            rt.anchorMax = new Vector2(0.5f, 1f);
+            rt.anchorMin = new Vector2(0.07f, 1f);
+            rt.anchorMax = new Vector2(0.93f, 1f);
             rt.pivot = new Vector2(0.5f, 1f);
             rt.anchoredPosition = new Vector2(0f, -12f);
-            float panelWidth = (panel != null) ? panel.rect.width : 900f;
-            rt.sizeDelta = new Vector2(panelWidth * 0.86f, 50f);
+            rt.sizeDelta = new Vector2(0f, 50f);
 
             Image bg = go.GetComponent<Image>();
             bg.sprite = null;
@@ -233,7 +232,7 @@ namespace ItemSpawnerEnhancement
             return input;
         }
 
-        /// <summary>滚动列表：ScrollRect + Viewport + Content（VerticalLayoutGroup 自增高）。</summary>
+        /// <summary>滚动列表：ScrollRect + Viewport + Content（GridLayoutGroup 正方形网格自增高）。</summary>
         private static void CreateScrollView(RectTransform panel, out RectTransform content)
         {
             GameObject scrollGo = new GameObject("ScrollView", typeof(RectTransform), typeof(ScrollRect));
@@ -259,7 +258,7 @@ namespace ItemSpawnerEnhancement
             Mask mask = viewportGo.GetComponent<Mask>();
             mask.showMaskGraphic = false;
 
-            GameObject contentGo = new GameObject("Content", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter));
+            GameObject contentGo = new GameObject("Content", typeof(RectTransform), typeof(GridLayoutGroup), typeof(ContentSizeFitter));
             RectTransform contentRt = (RectTransform)contentGo.transform;
             contentRt.SetParent(viewportRt, false);
             contentRt.anchorMin = new Vector2(0f, 1f);
@@ -268,14 +267,13 @@ namespace ItemSpawnerEnhancement
             contentRt.anchoredPosition = Vector2.zero;
             contentRt.sizeDelta = Vector2.zero;
 
-            VerticalLayoutGroup vlg = contentGo.GetComponent<VerticalLayoutGroup>();
-            vlg.childAlignment = TextAnchor.UpperCenter;
-            vlg.spacing = 4f;
-            vlg.padding = new RectOffset(4, 4, 4, 4);
-            vlg.childControlWidth = true;
-            vlg.childControlHeight = true;
-            vlg.childForceExpandWidth = true;
-            vlg.childForceExpandHeight = false;
+            GridLayoutGroup grid = contentGo.GetComponent<GridLayoutGroup>();
+            grid.cellSize = new Vector2(150f, 150f);       // 正方形格子
+            grid.spacing = new Vector2(12f, 12f);
+            grid.padding = new RectOffset(8, 8, 8, 8);
+            grid.constraint = GridLayoutGroup.Constraint.Flexible;   // 自动换行
+            grid.startAxis = GridLayoutGroup.Axis.Horizontal;
+            grid.childAlignment = TextAnchor.UpperCenter;
 
             ContentSizeFitter csf = contentGo.GetComponent<ContentSizeFitter>();
             csf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
@@ -301,11 +299,12 @@ namespace ItemSpawnerEnhancement
             GameObject go = new GameObject("ItemEntry", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button), typeof(LayoutElement));
             RectTransform rt = (RectTransform)go.transform;
             rt.SetParent(content, false);
-            rt.sizeDelta = new Vector2(0f, 56f);
+            rt.sizeDelta = new Vector2(150f, 150f);
 
             LayoutElement layout = go.GetComponent<LayoutElement>();
-            layout.preferredHeight = 56f;
-            layout.flexibleWidth = 1f;
+            layout.preferredWidth = 150f;
+            layout.preferredHeight = 150f;
+            layout.flexibleWidth = 0f;
 
             Image bg = go.GetComponent<Image>();
             bg.sprite = null;
@@ -316,29 +315,37 @@ namespace ItemSpawnerEnhancement
             button.targetGraphic = bg;
             button.transition = Selectable.Transition.None;
 
+            // 图标（顶部居中，约 90x90）
             GameObject iconGo = new GameObject("ItemIcon", typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage));
             RectTransform iconRt = (RectTransform)iconGo.transform;
             iconRt.SetParent(rt, false);
-            iconRt.anchorMin = new Vector2(0f, 0.5f);
-            iconRt.anchorMax = new Vector2(0f, 0.5f);
-            iconRt.pivot = new Vector2(0f, 0.5f);
-            iconRt.anchoredPosition = new Vector2(10f, 0f);
-            iconRt.sizeDelta = new Vector2(48f, 48f);
+            iconRt.anchorMin = new Vector2(0.5f, 1f);
+            iconRt.anchorMax = new Vector2(0.5f, 1f);
+            iconRt.pivot = new Vector2(0.5f, 1f);
+            iconRt.anchoredPosition = new Vector2(0f, -8f);
+            iconRt.sizeDelta = new Vector2(90f, 90f);
             RawImage icon = iconGo.GetComponent<RawImage>();
             icon.raycastTarget = false;
 
+            // 文字（底部居中，最多 2 行，超出省略号）
             GameObject nameGo = new GameObject("ItemName", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
             RectTransform nameRt = (RectTransform)nameGo.transform;
             nameRt.SetParent(rt, false);
-            nameRt.anchorMin = Vector2.zero;
-            nameRt.anchorMax = Vector2.one;
-            nameRt.offsetMin = new Vector2(66f, 4f);
-            nameRt.offsetMax = new Vector2(-10f, -4f);
+            nameRt.anchorMin = new Vector2(0f, 0f);
+            nameRt.anchorMax = new Vector2(1f, 0f);
+            nameRt.pivot = new Vector2(0.5f, 0f);
+            nameRt.offsetMin = Vector2.zero;
+            nameRt.offsetMax = Vector2.zero;
+            nameRt.anchoredPosition = new Vector2(0f, 4f);
+            nameRt.sizeDelta = new Vector2(-10f, 44f);
             TextMeshProUGUI name = nameGo.GetComponent<TextMeshProUGUI>();
             name.font = font;
-            name.fontSize = 22f;
+            name.fontSize = 19f;
             name.color = ColorTextIdle;
-            name.alignment = TextAlignmentOptions.MidlineLeft;
+            name.alignment = TextAlignmentOptions.Center;   // 居中
+            name.textWrappingMode = TextWrappingModes.Normal; // 换行（enableWordWrapping 已弃用）
+            name.overflowMode = TextOverflowModes.Ellipsis;  // 超出省略号
+            name.maxVisibleLines = 2;                        // 最多 2 行
             name.raycastTarget = false;
 
             // 心形标记（右上角，收藏时显示）
@@ -436,11 +443,11 @@ namespace ItemSpawnerEnhancement
             GameObject barGo = new GameObject("CategoryBar", typeof(RectTransform));
             RectTransform barRt = barGo.GetComponent<RectTransform>();
             barRt.SetParent(panel, false);
-            barRt.anchorMin = new Vector2(0.5f, 1f);
-            barRt.anchorMax = new Vector2(0.5f, 1f);
+            barRt.anchorMin = new Vector2(0.05f, 1f);
+            barRt.anchorMax = new Vector2(0.95f, 1f);
             barRt.pivot = new Vector2(0.5f, 1f);
             barRt.anchoredPosition = new Vector2(0f, -68f);
-            barRt.sizeDelta = new Vector2(panel.rect.width * 0.90f, 50f);
+            barRt.sizeDelta = new Vector2(0f, 50f);
             // 置于同级最上层（SetAsLastSibling），确保分类按钮不被 Scroll View 遮挡、可点击
             barRt.SetAsLastSibling();
 

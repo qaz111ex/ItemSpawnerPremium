@@ -34,7 +34,7 @@ namespace ItemSpawnerEnhancement
         public override bool openOnStart => false;
         public override bool closeOnPause => true;
         public override bool closeOnUICancel => true;
-        public override bool blocksPlayerInput => false;
+        public override bool blocksPlayerInput => true;
         public override bool selectOnOpen => true;
         public override Selectable objectToSelectOnOpen => searchInput;
         public override bool autoHideOnClose => true;
