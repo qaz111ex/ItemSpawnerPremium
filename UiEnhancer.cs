@@ -547,7 +547,18 @@ namespace ItemSpawnerEnhancement
                 return;
             }
             // 以 ItemListView 为唯一数据源：读当前状态翻转后同步回去
-            _view.SetFavoritesOnly(!_view.FavoritesOnly);
+            bool nowFavorite = !_view.FavoritesOnly;
+            _view.SetFavoritesOnly(nowFavorite);
+            if (nowFavorite)
+            {
+                // 收藏开启时，取消分类选中（回到"全部"）
+                _currentMajor = MajorCategory.All;
+                _view.SetMajor(MajorCategory.All);
+                for (int i = 0; i < _categoryButtons.Count; i++)
+                {
+                    RefreshButtonColor(i);
+                }
+            }
             RefreshFavoriteButtonColor();
         }
 
@@ -665,11 +676,13 @@ namespace ItemSpawnerEnhancement
             if (_view != null)
             {
                 _view.SetMajor(major);
+                _view.SetFavoritesOnly(false);   // 选中分类时取消收藏（互斥）
             }
             for (int i = 0; i < _categoryButtons.Count; i++)
             {
                 RefreshButtonColor(i);
             }
+            RefreshFavoriteButtonColor();
         }
     }
 }

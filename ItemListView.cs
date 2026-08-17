@@ -459,55 +459,57 @@ namespace ItemSpawnerEnhancement
 
         /// <summary>
         /// 计算条目匹配分数：返回 0 表示不匹配，分数越高排名越靠前。
-        /// 优先级：当前语言显示名 &gt; 英文名 &gt; prefab 名 &gt; 拼音全拼 &gt; 拼音首字母；
+        /// 优先级：当前语言显示名 &gt; 拼音（仅中文）&gt; 英文名 &gt; prefab 名；
         /// 每档内再按「精确 == / 前缀 / 包含」细分。
         /// </summary>
         private int Score(Entry entry, string query, string queryNoSpace)
         {
-            // query 已 trim + ToLowerInvariant；queryNoSpace 是去掉空格后的 query
-            if (!ItemCatalog.IsInMajor(entry.tags, _major))
-            {
-                return 0;
-            }
-            if (_favoritesOnly && !Plugin.Favorites.IsFavorite(entry.prefabName))
-            {
-                return 0; // 收藏筛选：非收藏物品不匹配
-            }
-            if (query.Length == 0)
-            {
-                return 1; // 空查询全部匹配，最低正分
-            }
+            // query 已 trim + ToLowerInvariant；queryNoSpace 是去掉所有非字母数字后的 query
+            if (!ItemCatalog.IsInMajor(entry.tags, _major)) { return 0; }
+            if (_favoritesOnly && !Plugin.Favorites.IsFavorite(entry.prefabName)) { return 0; }
+            if (query.Length == 0) { return 1; }
 
             string dn = entry.displayName == null ? null : entry.displayName.ToLowerInvariant();
             string en = entry.enName == null ? null : entry.enName.ToLowerInvariant();
             string pn = entry.prefabName == null ? null : entry.prefabName.ToLowerInvariant();
 
-            // 当前语言显示名（最高优先级）
+            // 1. 当前语言显示名（最高优先级）
             if (dn != null)
             {
-                if (dn == query) return 1000;
-                if (dn.StartsWith(query)) return 800;
-                if (dn.Contains(query)) return 500;
+                if (dn == query) { return 1000; }
+                if (dn.StartsWith(query)) { return 900; }
+                if (dn.Contains(query)) { return 600; }
             }
-            // 英文名
+
+            // 2. 拼音（仅中文语言下参与；前缀匹配优先于英文子串，保证中文玩家打拼音时中文结果靠前）
+            if (IsChineseLanguage())
+            {
+                if (entry.pinyin != null && queryNoSpace.Length > 0)
+                {
+                    if (entry.pinyin.StartsWith(queryNoSpace)) { return 850; }
+                    if (entry.pinyin.Contains(queryNoSpace)) { return 550; }
+                }
+                if (entry.pinyinInitials != null && queryNoSpace.Length > 0)
+                {
+                    if (entry.pinyinInitials.StartsWith(queryNoSpace)) { return 750; }
+                    if (entry.pinyinInitials.Contains(queryNoSpace)) { return 500; }
+                }
+            }
+
+            // 3. 英文名
             if (en != null)
             {
-                if (en == query) return 900;
-                if (en.StartsWith(query)) return 700;
-                if (en.Contains(query)) return 400;
+                if (en == query) { return 700; }
+                if (en.StartsWith(query)) { return 500; }
+                if (en.Contains(query)) { return 300; }
             }
-            // prefab 名
+            // 4. prefab 名
             if (pn != null)
             {
-                if (pn == query) return 800;
-                if (pn.StartsWith(query)) return 600;
-                if (pn.Contains(query)) return 350;
+                if (pn == query) { return 650; }
+                if (pn.StartsWith(query)) { return 450; }
+                if (pn.Contains(query)) { return 250; }
             }
-            // 拼音全拼
-            if (entry.pinyin != null && entry.pinyin.Contains(queryNoSpace)) return 200;
-            // 拼音首字母
-            if (entry.pinyinInitials != null && entry.pinyinInitials.Contains(queryNoSpace)) return 100;
-
             return 0;
         }
 
