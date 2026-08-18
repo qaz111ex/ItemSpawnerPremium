@@ -114,31 +114,21 @@ namespace ItemSpawnerEnhancement
 
         private static void EnsureCanvas(ItemSpawnerPlusWindow window)
         {
-            Canvas canvas = window.GetComponent<Canvas>();
-            if (canvas == null)
-            {
-                canvas = window.gameObject.AddComponent<Canvas>();
-            }
+            // Canvas/CanvasScaler/GraphicRaycaster 已在 ItemSpawnerPlusWindow.Awake 创建（挂子物体 canvasObject），
+            // 这里只做幂等配置（窗口根保持 active，Canvas 作为子物体）。
+            GameObject canvasGo = window.canvasObject;
+            Canvas canvas = canvasGo.GetComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 250;
 
-            CanvasScaler scaler = window.GetComponent<CanvasScaler>();
-            if (scaler == null)
-            {
-                scaler = window.gameObject.AddComponent<CanvasScaler>();
-            }
+            CanvasScaler scaler = canvasGo.GetComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920f, 1080f);
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             scaler.matchWidthOrHeight = 0.5f;
 
-            if (window.GetComponent<GraphicRaycaster>() == null)
-            {
-                window.gameObject.AddComponent<GraphicRaycaster>();
-            }
-
-            // 根 RectTransform 拉伸到全屏
-            RectTransform root = window.GetComponent<RectTransform>();
+            // 子 Canvas RectTransform 拉伸到全屏（Awake 已设，这里幂等）
+            RectTransform root = canvasGo.GetComponent<RectTransform>();
             root.anchorMin = Vector2.zero;
             root.anchorMax = Vector2.one;
             root.offsetMin = Vector2.zero;
@@ -148,7 +138,8 @@ namespace ItemSpawnerEnhancement
         private static void Build(ItemSpawnerPlusWindow window)
         {
             EnsureSprites();
-            RectTransform root = window.GetComponent<RectTransform>();
+            // UI 树挂在子 Canvas（canvasObject）下，而不是窗口根
+            RectTransform root = window.canvasObject.GetComponent<RectTransform>();
 
             RectTransform panelRt = CreatePanel(root);
             window.panelRect = panelRt;

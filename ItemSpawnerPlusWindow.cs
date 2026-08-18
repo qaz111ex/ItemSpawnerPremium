@@ -31,6 +31,30 @@ namespace ItemSpawnerEnhancement
         internal Transform template;
         internal RectTransform panelRect;
 
+        /// <summary>子 Canvas GameObject。窗口根必须保持 active（MonoBehaviour 协程才能运行），
+        /// 因此 Canvas 作为独立子物体，panel 指向它；StartClosed 只隐藏子 Canvas，窗口根仍 active。</summary>
+        internal GameObject canvasObject;
+
+        private void Awake()
+        {
+            // 窗口根 RectTransform 拉伸全屏（作为子 Canvas 的父级坐标系）
+            RectTransform rootRt = GetComponent<RectTransform>();
+            rootRt.anchorMin = Vector2.zero;
+            rootRt.anchorMax = Vector2.one;
+            rootRt.offsetMin = Vector2.zero;
+            rootRt.offsetMax = Vector2.zero;
+
+            // Canvas 作为独立子物体（挂在窗口根下）：窗口根保持 active，增量构建协程才能运行；
+            // MenuWindow.StartClosed 会对 panel（子 Canvas）SetActive(false)，不影响窗口根。
+            canvasObject = new GameObject("Canvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+            canvasObject.transform.SetParent(transform, false);
+            RectTransform canvasRt = canvasObject.GetComponent<RectTransform>();
+            canvasRt.anchorMin = Vector2.zero;
+            canvasRt.anchorMax = Vector2.one;
+            canvasRt.offsetMin = Vector2.zero;
+            canvasRt.offsetMax = Vector2.zero;
+        }
+
         public override bool openOnStart => false;
         public override bool closeOnPause => true;
         public override bool closeOnUICancel => true;
@@ -38,7 +62,7 @@ namespace ItemSpawnerEnhancement
         public override bool selectOnOpen => true;
         public override Selectable objectToSelectOnOpen => searchInput;
         public override bool autoHideOnClose => true;
-        public override GameObject panel => gameObject;
+        public override GameObject panel => canvasObject;
 
         protected override void Initialize()
         {
