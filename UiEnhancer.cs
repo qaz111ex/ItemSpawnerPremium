@@ -70,9 +70,9 @@ namespace ItemSpawnerEnhancement
                 Plugin.Log.LogError("ItemSpawnerPlus: Setup abort, window is null.");
                 return;
             }
-            // 幂等：该窗口已成功 Setup（ItemListView.Initialized），避免重复创建分类条/条目。
+            // 幂等：该窗口已成功 Setup（ItemListView.Initialized）或正在增量构建（Building），避免重复创建分类条/条目。
             ItemListView existing = window.GetComponent<ItemListView>();
-            if (existing != null && existing.Initialized)
+            if (existing != null && (existing.Initialized || existing.Building))
             {
                 return;
             }
@@ -94,7 +94,7 @@ namespace ItemSpawnerEnhancement
             }
             try
             {
-                _view.Init(window.content, window.template, window.searchInput, OnMajorSelected);
+                _view.Init(window.content, window.template, window.searchInput);
             }
             catch (Exception ex)
             {
@@ -790,13 +790,18 @@ namespace ItemSpawnerEnhancement
             _view.SetFavoritesOnly(nowFavorite);
             if (nowFavorite)
             {
-                // 收藏开启时，取消分类选中（回到"全部"）
-                _currentMajor = MajorCategory.All;
+                // 收藏开启：分类视觉取消选中（哨兵值，7 个分类按钮都不高亮），数据层分类设为"全部"（不过滤分类，只看收藏）
+                _currentMajor = (MajorCategory)(-1);
                 _view.SetMajor(MajorCategory.All);
-                for (int i = 0; i < _categoryButtons.Count; i++)
-                {
-                    RefreshButtonColor(i);
-                }
+            }
+            else
+            {
+                // 收藏关闭：回到"全部"分类
+                _currentMajor = MajorCategory.All;
+            }
+            for (int i = 0; i < _categoryButtons.Count; i++)
+            {
+                RefreshButtonColor(i);
             }
             RefreshFavoriteButtonColor();
         }

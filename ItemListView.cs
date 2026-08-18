@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -32,6 +33,9 @@ namespace ItemSpawnerEnhancement
         /// <summary>Init 是否已成功执行（成功末尾置 true）。判断"已成功 Setup"的可靠依据，不依赖 Destroy 延迟语义。</summary>
         [NonSerialized] public bool Initialized;
 
+        /// <summary>增量构建条目是否进行中（防止构建期间 Warmup/F5 重复 Setup 导致重复构建）。</summary>
+        public bool Building { get; private set; }
+
         private Transform _content;
         private Transform _template;
         private TMP_InputField _searchInput;
@@ -42,17 +46,14 @@ namespace ItemSpawnerEnhancement
 
         private TMP_FontAsset _fontLatin;
         private TMP_FontAsset _fontCjk;
-        private Action<MajorCategory> _onMajorChanged;
         private bool _subscribedInput;
         private bool _subscribedLanguage;
 
-        public void Init(Transform content, Transform template, TMP_InputField searchInput,
-            Action<MajorCategory> onMajorChanged)
+        public void Init(Transform content, Transform template, TMP_InputField searchInput)
         {
             _content = content;
             _template = template;
             _searchInput = searchInput;
-            _onMajorChanged = onMajorChanged;
 
             _fontLatin = FindFont("DarumaDropOne-Regular SDF");
             _fontCjk = GetGameBaseFont();
@@ -71,9 +72,9 @@ namespace ItemSpawnerEnhancement
             }
 
             RefreshFonts();
-            BuildAllEntries();
-            Rebuild();
-            Initialized = true;
+            // 同步置构建中标志：窗口 inactive 时协程体不会执行，必须在 Init 同步置位防止 Warmup/F5 重复 Setup
+            Building = true;
+            StartCoroutine(BuildAllEntriesIncremental());
         }
 
         /// <summary>挂接搜索输入监听（无条件强制重挂接，幂等）；UiEnhancer.Setup 清空旧监听后调用以恢复。</summary>
@@ -115,10 +116,6 @@ namespace ItemSpawnerEnhancement
             }
             _major = major;
             Rebuild();
-            if (_onMajorChanged != null)
-            {
-                _onMajorChanged(major);
-            }
         }
 
         public void SetQuery(string value)
@@ -364,76 +361,87 @@ namespace ItemSpawnerEnhancement
             }
         }
 
-        /// <summary>
-        /// 一次性实例化所有条目并缓存（对象池）：设置不变的一次性内容
-        /// （移除 LocalizedText、图标、名称初值、左键生成、右键收藏、心形初值），
-        /// 后续 Rebuild 只做显隐 + 排序，不再 Destroy/Instantiate。
-        /// </summary>
-        private void BuildAllEntries()
+        /// <summary>创建单个条目并设置一次性内容（图标、名称初值、左键生成、右键收藏、心形初值）。</summary>
+        private void CreateEntry(Entry entry)
         {
-            for (int i = 0; i < _all.Count; i++)
+            Transform clone = Instantiate(_template, _content);
+            clone.gameObject.name = entry.prefabName;
+            entry.go = clone.gameObject;
+
+            // 移除克隆条目上的 LocalizedText 组件，避免游戏语言刷新时覆盖我们设置的文本/字体
+            LocalizedText[] inheritedLts = clone.GetComponentsInChildren<LocalizedText>(true);
+            for (int li = 0; li < inheritedLts.Length; li++)
             {
-                Entry entry = _all[i];
-                Transform clone = Instantiate(_template, _content);
-                clone.gameObject.name = entry.prefabName;
-                entry.go = clone.gameObject;
-
-                // 移除克隆条目上的 LocalizedText 组件，避免游戏语言刷新时覆盖我们设置的文本/字体
-                LocalizedText[] inheritedLts = clone.GetComponentsInChildren<LocalizedText>(true);
-                for (int li = 0; li < inheritedLts.Length; li++)
+                if (inheritedLts[li] != null)
                 {
-                    if (inheritedLts[li] != null)
-                    {
-                        Destroy(inheritedLts[li]);
-                    }
-                }
-
-                // 图标（一次性）
-                Transform iconTrans = clone.Find("ItemIcon");
-                if (iconTrans != null)
-                {
-                    RawImage icon = iconTrans.GetComponent<RawImage>();
-                    if (icon != null && entry.item.UIData != null)
-                    {
-                        icon.texture = entry.item.UIData.icon;
-                    }
-                }
-
-                // 名称（一次性设初值，后续 Rebuild 按语言更新）
-                Transform nameTrans = clone.Find("ItemName");
-                if (nameTrans != null)
-                {
-                    TextMeshProUGUI nameText = nameTrans.GetComponent<TextMeshProUGUI>();
-                    if (nameText != null)
-                    {
-                        nameText.text = entry.displayName;
-                    }
-                }
-
-                // 左键生成（一次性绑定）
-                Button button = clone.GetComponent<Button>();
-                if (button != null)
-                {
-                    Item captured = entry.item;
-                    button.onClick.AddListener(() => SpawnItem(captured));
-                }
-
-                // 右键收藏（一次性挂载）
-                ItemFavoriteTrigger ft = clone.gameObject.AddComponent<ItemFavoriteTrigger>();
-                string capturedPrefab = entry.prefabName;
-                Transform capturedFav = clone.Find("Favorite");
-                ft.Configure(() => ToggleFavorite(capturedPrefab, capturedFav));
-
-                // 心形标记（初始状态）
-                if (capturedFav != null)
-                {
-                    capturedFav.gameObject.SetActive(Plugin.Favorites.IsFavorite(entry.prefabName));
+                    Destroy(inheritedLts[li]);
                 }
             }
 
+            // 图标（一次性）
+            Transform iconTrans = clone.Find("ItemIcon");
+            if (iconTrans != null)
+            {
+                RawImage icon = iconTrans.GetComponent<RawImage>();
+                if (icon != null && entry.item.UIData != null)
+                {
+                    icon.texture = entry.item.UIData.icon;
+                }
+            }
+
+            // 名称（一次性设初值，后续 Rebuild 按语言更新）
+            Transform nameTrans = clone.Find("ItemName");
+            if (nameTrans != null)
+            {
+                TextMeshProUGUI nameText = nameTrans.GetComponent<TextMeshProUGUI>();
+                if (nameText != null)
+                {
+                    nameText.text = entry.displayName;
+                }
+            }
+
+            // 左键生成（一次性绑定）
+            Button button = clone.GetComponent<Button>();
+            if (button != null)
+            {
+                Item captured = entry.item;
+                button.onClick.AddListener(() => SpawnItem(captured));
+            }
+
+            // 右键收藏（一次性挂载）
+            ItemFavoriteTrigger ft = clone.gameObject.AddComponent<ItemFavoriteTrigger>();
+            string capturedPrefab = entry.prefabName;
+            Transform capturedFav = clone.Find("Favorite");
+            ft.Configure(() => ToggleFavorite(capturedPrefab, capturedFav));
+
+            // 心形标记（初始状态）
+            if (capturedFav != null)
+            {
+                capturedFav.gameObject.SetActive(Plugin.Favorites.IsFavorite(entry.prefabName));
+            }
+        }
+
+        /// <summary>
+        /// 增量构建：分批实例化条目（每批 24 个让出一帧），分散单帧 Instantiate 开销，消除初次打开卡顿。
+        /// </summary>
+        private IEnumerator BuildAllEntriesIncremental()
+        {
+            Building = true;
+            const int batchSize = 24;
+            for (int i = 0; i < _all.Count; i++)
+            {
+                CreateEntry(_all[i]);
+                if ((i + 1) % batchSize == 0 && i + 1 < _all.Count)
+                {
+                    yield return null;  // 每批让出一帧，分散 Instantiate 开销
+                }
+            }
             // 模板放最后且 inactive（不参与布局），避免被误当条目
             _template.gameObject.SetActive(false);
             _template.SetAsLastSibling();
+            Rebuild();
+            Initialized = true;
+            Building = false;
         }
 
         private void Rebuild()
