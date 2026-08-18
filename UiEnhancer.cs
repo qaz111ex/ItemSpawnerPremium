@@ -369,7 +369,7 @@ namespace ItemSpawnerEnhancement
             scroll.horizontal = false;
             scroll.vertical = true;
             scroll.movementType = ScrollRect.MovementType.Clamped;
-            scroll.scrollSensitivity = 40f;
+            scroll.scrollSensitivity = 20f;
 
             // 垂直滚动条（Unity 标准结构：Scrollbar → Sliding Area → Handle）
             GameObject scrollbarGo = new GameObject("Scrollbar", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Scrollbar));
@@ -599,6 +599,60 @@ namespace ItemSpawnerEnhancement
             image.sprite = sprite;
             image.type = Image.Type.Sliced;
             image.color = Color.white;
+        }
+
+        /// <summary>样式热重载：清空 Sprite 缓存重新烘焙，并按 sprite 名遍历窗口所有 Image 重新套用。</summary>
+        public static void OnStyleChanged()
+        {
+            // 1. 清空缓存（EnsureSprites 惰性烘焙，字段为 null 会按新样式重新生成）
+            _panelSprite = null;
+            _cardSprite = null;
+            _searchSprite = null;
+            _btnIdleSprite = null;
+            _btnHoverSprite = null;
+            _btnSelectedSprite = null;
+            _scrollbarBgSprite = null;
+            _scrollbarHandleSprite = null;
+            _shadowSprite = null;
+            EnsureSprites();
+
+            // 2. 遍历窗口所有 Image，按旧 sprite.name 套用新 Sprite（保持按钮当前三态/各元素角色不变）
+            if (Plugin.Window == null || Plugin.Window.canvasObject == null)
+            {
+                return; // 窗口尚未创建，无需套用（下次 Setup 会用新 Sprite）
+            }
+            Image[] images = Plugin.Window.canvasObject.GetComponentsInChildren<Image>(true);
+            for (int i = 0; i < images.Length; i++)
+            {
+                Image img = images[i];
+                if (img == null || img.sprite == null)
+                {
+                    continue;
+                }
+                Sprite s = FindSpriteByName(img.sprite.name);
+                if (s != null)
+                {
+                    ApplySprite(img, s);
+                }
+            }
+        }
+
+        /// <summary>按烘焙 Sprite 名返回对应缓存 Sprite（样式热重载时遍历套用）。</summary>
+        private static Sprite FindSpriteByName(string name)
+        {
+            switch (name)
+            {
+                case "ItemSpawnerPlus Panel": return _panelSprite;
+                case "ItemSpawnerPlus Card": return _cardSprite;
+                case "ItemSpawnerPlus Search": return _searchSprite;
+                case "ItemSpawnerPlus BtnIdle": return _btnIdleSprite;
+                case "ItemSpawnerPlus BtnHover": return _btnHoverSprite;
+                case "ItemSpawnerPlus BtnSelected": return _btnSelectedSprite;
+                case "ItemSpawnerPlus ScrollBg": return _scrollbarBgSprite;
+                case "ItemSpawnerPlus ScrollHandle": return _scrollbarHandleSprite;
+                case "ItemSpawnerPlus Shadow": return _shadowSprite;
+                default: return null;
+            }
         }
 
         /// <summary>用 SDF 生成带描边/白边/填充的 9-slice 卡片 Sprite（64×64，4×4 超采样抗锯齿）。</summary>

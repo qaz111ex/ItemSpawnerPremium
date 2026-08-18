@@ -21,10 +21,14 @@ namespace ItemSpawnerEnhancement
         /// <summary>收藏集合（Config 持久化），供 ItemListView/UiEnhancer 使用。</summary>
         internal static FavoriteStore Favorites { get; private set; }
 
-        /// <summary>UI 样式（Config 启动时读取，重启生效）：HandDrawn=手绘风；Transparent=透明风。</summary>
-        internal static string UiStyle { get; private set; }
+        /// <summary>UI 样式：HandDrawn=手绘风；Transparent=透明风。实时读 Config，改配置立即生效（热重载）。</summary>
+        internal static string UiStyle
+        {
+            get { return (_styleEntry != null) ? _styleEntry.Value : "HandDrawn"; }
+        }
 
         private static ConfigEntry<Key> _toggleKey;
+        private static ConfigEntry<string> _styleEntry;
 
         private void Awake()
         {
@@ -39,13 +43,15 @@ namespace ItemSpawnerEnhancement
                 Key.F5,
                 "打开/关闭物品生成器窗口的按键（Unity.InputSystem.Key 枚举值）。");
 
-            UiStyle = Config.Bind<string>(
+            _styleEntry = Config.Bind<string>(
                 "General",
                 "Style",
                 "HandDrawn",
                 new ConfigDescription(
                     "UI 样式：HandDrawn=手绘风（默认，实色暖卡纸）；Transparent=透明风（面板半透明，搜索框不透明）。",
-                    new AcceptableValueList<string>("HandDrawn", "Transparent"))).Value;
+                    new AcceptableValueList<string>("HandDrawn", "Transparent")));
+            // 热重载：PEAKLib.ModConfig 改样式时触发 SettingChanged，重新烘焙 Sprite 并套用到所有 Image
+            _styleEntry.SettingChanged += delegate { UiEnhancer.OnStyleChanged(); };
 
             Favorites = new FavoriteStore(Config.Bind<string>("Favorites", "ItemNames", "[]",
                 new ConfigDescription(
