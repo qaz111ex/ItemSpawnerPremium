@@ -43,10 +43,15 @@ namespace ItemSpawnerEnhancement
                 "General",
                 "Style",
                 "HandDrawn",
-                "UI 样式：HandDrawn=手绘风（默认，实色暖卡纸）；Transparent=透明风（面板半透明，搜索框不透明）。").Value;
+                new ConfigDescription(
+                    "UI 样式：HandDrawn=手绘风（默认，实色暖卡纸）；Transparent=透明风（面板半透明，搜索框不透明）。",
+                    new AcceptableValueList<string>("HandDrawn", "Transparent"))).Value;
 
             Favorites = new FavoriteStore(Config.Bind<string>("Favorites", "ItemNames", "[]",
-                "收藏物品的 prefab 名（JSON 数组），在物品生成器 UI 中右键物品管理。"));
+                new ConfigDescription(
+                    "收藏物品的 prefab 名（JSON 数组），在物品生成器 UI 中右键物品管理。",
+                    null,
+                    "Hidden")));
 
             Harmony harmony = new Harmony("com.itemspawnerplus.ItemSpawnerPlus");
             harmony.PatchAll(Assembly.GetExecutingAssembly());
