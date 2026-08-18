@@ -496,6 +496,14 @@ namespace ItemSpawnerEnhancement
                         }
                     }
                 }
+
+                // 刷新心形显隐：收藏状态可能已变（如在收藏筛选界面取消收藏后切回其他分类），
+                // Rebuild 必须同步心形标记，否则残留"已取消收藏却仍显示爱心"。
+                Transform favTrans = go.transform.Find("Favorite");
+                if (favTrans != null)
+                {
+                    favTrans.gameObject.SetActive(Plugin.Favorites.IsFavorite(entry.prefabName));
+                }
             }
         }
 
