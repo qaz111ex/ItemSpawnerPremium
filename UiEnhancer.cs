@@ -22,6 +22,7 @@ namespace ItemSpawnerEnhancement
         private static ItemListView _view;
         private static Button _favoriteButton;
         private static TextMeshProUGUI _favoriteButtonLabel;
+        private static TextMeshProUGUI _rightClickHint;
         private static Texture2D _heartTexture;
         // 烘焙好的 Sprite 缓存（描边/白边/填充全部烘进纹理，0 层 Outline）
         private static Sprite _panelSprite;
@@ -41,6 +42,7 @@ namespace ItemSpawnerEnhancement
         private static readonly Color ColorSelected = new Color(0.96f, 0.91f, 0.81f, 1f);    // 选中：最浅的暖黄高亮（三态中最亮，突出选中）
         private static readonly Color ColorTextIdle = new Color(0.28f, 0.21f, 0.14f, 1f);    // 默认/悬停文字：深暖棕（浅色底上高对比）
         private static readonly Color ColorTextSelected = new Color(0.22f, 0.16f, 0.10f, 1f); // 选中文字：更深的暖棕（最浅选中底上更稳）
+        private static readonly Color ColorHint = new Color(0.50f, 0.42f, 0.32f, 1f);          // 右键收藏提示：柔和暖棕（比正文略淡，示意辅助提示）
 
         // 面板底色（暖卡纸）：比分类按钮略深一档，衬托按钮与条目（用户喜欢的牛皮纸基调，保留）。
         private static readonly Color PanelBackground = new Color(0.76f, 0.69f, 0.56f, 1f);
@@ -164,6 +166,9 @@ namespace ItemSpawnerEnhancement
             Transform template = CreateItemEntryTemplate(content, font);
             window.template = template;
 
+            // 右键收藏提示（分类条下方、滚动列表上方一行居中；置于分类条之前创建，保持分类条始终为最上层兄弟）
+            CreateRightClickHint(panelRt, font);
+
             CreateCategoryBar(panelRt, (RectTransform)searchInput.transform);
         }
 
@@ -275,9 +280,9 @@ namespace ItemSpawnerEnhancement
             scrollRt.anchorMin = Vector2.zero;
             scrollRt.anchorMax = Vector2.one;
             scrollRt.pivot = new Vector2(0.5f, 0.5f);
-            // 顶部缩进 130px，为顶部搜索框（12~62px）+ 分类条（68~118px）让位
+            // 顶部缩进 150px，为顶部搜索框（12~62px）+ 分类条（68~118px）+ 右键提示（123~145px）让位
             scrollRt.offsetMin = new Vector2(20f, 20f);
-            scrollRt.offsetMax = new Vector2(-20f, -130f);
+            scrollRt.offsetMax = new Vector2(-20f, -150f);
 
             GameObject viewportGo = new GameObject("Viewport", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Mask));
             RectTransform viewportRt = (RectTransform)viewportGo.transform;
@@ -428,25 +433,37 @@ namespace ItemSpawnerEnhancement
             favRt.anchorMax = new Vector2(1f, 1f);
             favRt.pivot = new Vector2(1f, 1f);
             favRt.anchoredPosition = new Vector2(-4f, -4f);
-            favRt.sizeDelta = new Vector2(24f, 24f);
+            favRt.sizeDelta = new Vector2(26f, 26f);
             RawImage favImg = favGo.GetComponent<RawImage>();
             favImg.texture = GetHeartTexture();
-            favImg.color = new Color(0.86f, 0.32f, 0.34f, 1f); // 暖红心形
+            favImg.color = Color.white; // 红色填充 + 深暖棕描边已烘进纹理，color 置白避免二次染色
             favImg.raycastTarget = false;
             favGo.SetActive(false); // 默认隐藏
 
             return rt;
         }
 
-        /// <summary>程序化生成 32x32 心形纹理（静态缓存，避免重复生成）。</summary>
+        /// <summary>
+        /// 程序化生成 64x64 手绘风心形纹理（静态缓存）：红色填充 + 深暖棕勾线描边。
+        /// 用隐式心形方程 f=(x²+y²−1)³ − x²·y³ 的 SDF 值做阈值分层（内部红填充 → 边缘深暖棕勾线 → 外部透明），
+        /// 4×4 超采样抗锯齿；描边色直接烘进纹理，0 额外组件。
+        /// </summary>
         private static Texture2D GetHeartTexture()
         {
             if (_heartTexture != null)
             {
                 return _heartTexture;
             }
-            const int size = 32;
+            const int size = 64;
             const int samplesPerAxis = 4;
+            const float cx = 32f;             // 心形中心 x（归一化坐标原点对应的像素）
+            const float cy = 29f;             // 心形中心 y（略低于几何中心，为底部尖角留白）
+            const float scale = 22f;          // 心形缩放（归一化单位 → 像素）
+            const float outlineHalf = 1.75f;  // 勾线描边半宽（像素），整圈描边约 3.5px
+
+            Color fill = new Color(0.86f, 0.32f, 0.34f, 1f); // 暖红填充（与原 favImg.color 一致）
+            Color outline = ColorInkOutline;                  // 深暖棕勾线（与全局"勾线"色一致，手绘统一）
+
             var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
             texture.name = "ItemSpawnerPlus Heart";
             texture.filterMode = FilterMode.Bilinear;
@@ -457,29 +474,51 @@ namespace ItemSpawnerEnhancement
             {
                 for (int x = 0; x < size; x++)
                 {
-                    int inside = 0;
+                    float r = 0f, g = 0f, b = 0f, a = 0f;
                     for (int sy = 0; sy < samplesPerAxis; sy++)
                     {
                         for (int sx = 0; sx < samplesPerAxis; sx++)
                         {
                             float px = x + (sx + 0.5f) / samplesPerAxis;
                             float py = y + (sy + 0.5f) / samplesPerAxis;
-                            float nx = (px - 16f) / 11f;
-                            float ny = (py - 14.5f) / 11f;
-                            float sum = nx * nx + ny * ny - 1f;
-                            if (sum * sum * sum - nx * nx * ny * ny * ny <= 0f)
+                            float nx = (px - cx) / scale;
+                            float ny = (py - cy) / scale;
+                            float u = nx * nx + ny * ny - 1f;
+                            // 隐式心形方程：内部 f<0，边界 f=0，外部 f>0
+                            float f = u * u * u - nx * nx * ny * ny * ny;
+                            // 解析梯度 ∇f，用于把 f 归一化为近似带符号距离
+                            float gx = 6f * nx * u * u - 2f * nx * ny * ny * ny;
+                            float gy = 6f * ny * u * u - 3f * nx * nx * ny * ny;
+                            float glen = Mathf.Sqrt(gx * gx + gy * gy);
+                            if (glen < 1e-3f)
                             {
-                                inside++;
+                                glen = 1e-3f; // 尖点处梯度趋近 0，钳制防除零
                             }
+                            float dist = f / glen * scale; // 带符号距离（像素，负 = 内部）
+                            Color c = SampleHeart(dist, outlineHalf, fill, outline);
+                            r += c.r; g += c.g; b += c.b; a += c.a;
                         }
                     }
-                    pixels[y * size + x] = new Color32(255, 255, 255, (byte)(255 * inside / (samplesPerAxis * samplesPerAxis)));
+                    int n = samplesPerAxis * samplesPerAxis;
+                    pixels[y * size + x] = new Color32(
+                        (byte)(Mathf.Clamp01(r / n) * 255f),
+                        (byte)(Mathf.Clamp01(g / n) * 255f),
+                        (byte)(Mathf.Clamp01(b / n) * 255f),
+                        (byte)(Mathf.Clamp01(a / n) * 255f));
                 }
             }
             texture.SetPixels32(pixels);
             texture.Apply(false, true);
             _heartTexture = texture;
             return _heartTexture;
+        }
+
+        /// <summary>心形 SDF 采样分层：深入内部 → 红填充；边界一带 → 深暖棕勾线；外部 → 透明。</summary>
+        private static Color SampleHeart(float dist, float outlineHalf, Color fill, Color outline)
+        {
+            if (dist < -outlineHalf) { return fill; }   // 内部主体 → 红填充
+            if (dist < outlineHalf) { return outline; }  // 边界 ±outlineHalf → 深暖棕勾线
+            return new Color(0f, 0f, 0f, 0f);            // 外部 → 透明
         }
 
         /// <summary>确保所有烘焙 Sprite 已生成（描边/白边/填充烘进纹理，0 层 Outline）。</summary>
@@ -606,6 +645,15 @@ namespace ItemSpawnerEnhancement
                     _favoriteButtonLabel.font = font;
                 }
             }
+            // 右键收藏提示文字/字体随语言刷新
+            if (_rightClickHint != null)
+            {
+                _rightClickHint.text = Loc.Get("rightClickHint");
+                if (font != null)
+                {
+                    _rightClickHint.font = font;
+                }
+            }
         }
 
         private static Transform CreateCategoryBar(RectTransform panel, RectTransform searchBar)
@@ -649,6 +697,32 @@ namespace ItemSpawnerEnhancement
             // 收藏筛选按钮：独立于分类单选，可叠加
             CreateFavoriteButton(barRt, font);
             return barRt;
+        }
+
+        /// <summary>右键收藏提示：分类条下方、滚动列表上方一行居中文字（暖卡纸柔和提示色，不拦截点击）。</summary>
+        private static void CreateRightClickHint(RectTransform panel, TMP_FontAsset font)
+        {
+            GameObject go = new GameObject("RightClickHint", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+            RectTransform rt = (RectTransform)go.transform;
+            rt.SetParent(panel, false);
+            rt.anchorMin = new Vector2(0f, 1f);
+            rt.anchorMax = new Vector2(1f, 1f);
+            rt.pivot = new Vector2(0.5f, 1f);
+            // 位于分类条底部(-118)与滚动列表顶部(-150)之间，垂直居中（-123~-145）
+            rt.anchoredPosition = new Vector2(0f, -123f);
+            rt.sizeDelta = new Vector2(-24f, 22f);
+
+            TextMeshProUGUI text = go.GetComponent<TextMeshProUGUI>();
+            text.font = font;
+            text.fontSize = 17f;
+            text.fontStyle = FontStyles.Italic; // 斜体示意辅助提示（与搜索占位符一致）
+            text.color = ColorHint;
+            text.alignment = TextAlignmentOptions.Center;
+            text.textWrappingMode = TextWrappingModes.NoWrap;
+            text.text = Loc.Get("rightClickHint");
+            text.raycastTarget = false; // 纯提示，不拦截点击
+
+            _rightClickHint = text;
         }
 
         /// <summary>收藏筛选按钮（分类条末尾，独立 toggle，暖卡纸配色）。</summary>

@@ -7,5 +7,6 @@
   "catConsumables": "消耗品",
   "catProps": "小道具",
   "searchPlaceholder": "アイテムを検索...",
-  "catFavorite": "お気に入り"
+  "catFavorite": "お気に入り",
+  "rightClickHint": "右クリックでお気に入り登録"
 }

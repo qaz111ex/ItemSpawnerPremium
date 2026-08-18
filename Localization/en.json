@@ -7,5 +7,6 @@
   "catConsumables": "Consumables",
   "catProps": "Props",
   "searchPlaceholder": "Search items...",
-  "catFavorite": "Favorites"
+  "catFavorite": "Favorites",
+  "rightClickHint": "Right-click an item to favorite it"
 }

@@ -7,5 +7,6 @@
   "catConsumables": "Verbrauchsobjekte",
   "catProps": "Sonstiges",
   "searchPlaceholder": "Gegenstände suchen...",
-  "catFavorite": "Favoriten"
+  "catFavorite": "Favoriten",
+  "rightClickHint": "Rechtsklick zum Favorisieren"
 }

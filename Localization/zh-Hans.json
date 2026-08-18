@@ -7,5 +7,6 @@
   "catConsumables": "消耗品",
   "catProps": "场景",
   "searchPlaceholder": "搜索物品...",
-  "catFavorite": "收藏"
+  "catFavorite": "收藏",
+  "rightClickHint": "右键物品可收藏"
 }

@@ -7,5 +7,6 @@
   "catConsumables": "Tüketilebilir",
   "catProps": "Diğer",
   "searchPlaceholder": "Eşya ara...",
-  "catFavorite": "Favoriler"
+  "catFavorite": "Favoriler",
+  "rightClickHint": "Sağ tıkla favorilere ekle"
 }

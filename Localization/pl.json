@@ -7,5 +7,6 @@
   "catConsumables": "Zużywalne",
   "catProps": "Inne",
   "searchPlaceholder": "Szukaj przedmiotów...",
-  "catFavorite": "Ulubione"
+  "catFavorite": "Ulubione",
+  "rightClickHint": "Prawy przycisk — dodaj do ulubionych"
 }
