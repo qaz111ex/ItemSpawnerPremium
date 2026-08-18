@@ -74,24 +74,24 @@ namespace ItemSpawnerEnhancement
             ScrollbarHandle = new Color(0.80f, 0.71f, 0.58f, 1f), // 滚动条 handle：较浅暖棕滑块
         };
 
-        // 透明风调色板：整套面板半透明（面板/卡片/按钮/滚动条带 alpha），保留暖卡纸基调与手绘勾线感；
-        // 搜索框保持不透明（用户要求），文字保持深暖棕不透明（半透明底上仍高对比清晰可读）。
+        // 透明风调色板：简洁深色半透明面板，参考 1.2.0 / PEAK 原生深色菜单的视觉语言（深灰黑基调 + 浅色文字）。
+        // 核心原则：半透明深色、越透明越好（但不能看不清边界与文字）、无手绘描边（简洁）、浅色文字保证可读。
         private static readonly Palette TransparentPalette = new Palette
         {
-            Idle = new Color(0.82f, 0.75f, 0.63f, 0.55f),            // 按钮默认：米棕半透明
-            Hover = new Color(0.90f, 0.84f, 0.74f, 0.65f),           // 按钮悬停：奶油半透明（略更亮）
-            Selected = new Color(0.96f, 0.91f, 0.81f, 0.78f),        // 按钮选中：暖黄半透明（三态中最亮）
-            TextIdle = new Color(0.28f, 0.21f, 0.14f, 1f),           // 文字不透明，保持高对比可读
-            TextSelected = new Color(0.22f, 0.16f, 0.10f, 1f),       // 选中文字不透明
-            Hint = new Color(0.50f, 0.42f, 0.32f, 1f),               // 提示文字不透明
-            PanelBackground = new Color(0.76f, 0.69f, 0.56f, 0.65f), // 面板：暖棕半透明
-            InkOutline = new Color(0.36f, 0.25f, 0.15f, 0.8f),       // 深暖棕勾线：alpha 略降，保留手绘描边感
-            InnerHighlight = new Color(0.99f, 0.94f, 0.85f, 0.8f),   // 奶油白内描边：alpha 略降
-            CardFill = new Color(0.89f, 0.83f, 0.73f, 0.5f),         // 卡片：比面板更透，保留层次
-            PanelShadow = new Color(0.33f, 0.24f, 0.15f, 0.25f),     // 投影：深暖棕半透明略降
-            SearchFill = new Color(0.70f, 0.62f, 0.50f, 1f),         // 搜索框：保持不透明（用户要求）
-            ScrollbarBg = new Color(0.58f, 0.48f, 0.36f, 0.45f),     // 滚动条轨道：半透明
-            ScrollbarHandle = new Color(0.80f, 0.71f, 0.58f, 0.7f),  // 滚动条滑块：半透明
+            Idle = new Color(0.16f, 0.16f, 0.17f, 0.55f),            // 按钮默认：深灰半透明
+            Hover = new Color(0.21f, 0.21f, 0.22f, 0.60f),           // 按钮悬停：略亮一档
+            Selected = new Color(0.28f, 0.28f, 0.30f, 0.62f),        // 按钮选中：三态中最亮（明显但不刺眼）
+            TextIdle = new Color(0.90f, 0.90f, 0.92f, 1f),           // 默认文字：浅灰白（深底高对比，不透明）
+            TextSelected = new Color(1f, 1f, 1f, 1f),                // 选中文字：纯白更亮
+            Hint = new Color(0.70f, 0.70f, 0.73f, 1f),               // 提示文字：浅灰（略淡于正文）
+            PanelBackground = new Color(0.11f, 0.11f, 0.12f, 0.48f), // 面板：深灰黑半透明（越透明越好但保留边界）
+            InkOutline = new Color(0f, 0f, 0f, 0f),                  // 描边：全透明（去掉手绘勾线，简洁）
+            InnerHighlight = new Color(0f, 0f, 0f, 0f),              // 内描边：全透明（简洁）
+            CardFill = new Color(0.19f, 0.19f, 0.20f, 0.42f),        // 卡片：比面板略浅且更透，保留层次
+            PanelShadow = new Color(0f, 0f, 0f, 0.18f),              // 投影：很淡的半透明深色
+            SearchFill = new Color(0.07f, 0.07f, 0.08f, 0.62f),      // 搜索框：深灰半透明（略深于面板，下凹输入槽感）
+            ScrollbarBg = new Color(0.14f, 0.14f, 0.15f, 0.35f),     // 滚动条轨道：深灰半透明
+            ScrollbarHandle = new Color(0.44f, 0.44f, 0.47f, 0.60f), // 滚动条滑块：浅灰半透明（比轨道亮，可辨识）
         };
 
         /// <summary>当前样式调色板：Plugin.UiStyle == "Transparent" 时走透明风，否则手绘风（默认）。</summary>
