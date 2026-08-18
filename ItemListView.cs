@@ -77,15 +77,28 @@ namespace ItemSpawnerEnhancement
             StartCoroutine(BuildAllEntriesIncremental());
         }
 
-        /// <summary>挂接搜索输入监听（无条件强制重挂接，幂等）；UiEnhancer.Setup 清空旧监听后调用以恢复。</summary>
-        public void SubscribeSearchInput()
+        /// <summary>
+        /// 物品隐藏开关切换后重建目录：销毁旧条目 clone（保留模板），重新 BuildCatalog + 增量构建。
+        /// </summary>
+        public void RefreshCatalog()
         {
-            if (_searchInput != null)
+            if (!Initialized || Building)
             {
-                _searchInput.onValueChanged.RemoveListener(OnSearchChanged);
-                _searchInput.onValueChanged.AddListener(OnSearchChanged);
-                _subscribedInput = true;
+                return;
             }
+            // 先隐藏再销毁旧条目 clone，避免一帧内新旧条目同时可见
+            for (int i = _content.childCount - 1; i >= 0; i--)
+            {
+                Transform child = _content.GetChild(i);
+                if (child != _template)
+                {
+                    child.gameObject.SetActive(false);
+                    Destroy(child.gameObject);
+                }
+            }
+            BuildCatalog();
+            Building = true;
+            StartCoroutine(BuildAllEntriesIncremental());
         }
 
         private void OnDestroy()
@@ -176,7 +189,7 @@ namespace ItemSpawnerEnhancement
                         continue;
                     }
                     string prefab = item.gameObject.name;
-                    if (string.IsNullOrEmpty(prefab) || ItemCatalog.IsHidden(prefab))
+                    if (string.IsNullOrEmpty(prefab) || (Plugin.HideUnused && ItemCatalog.IsHidden(prefab)))
                     {
                         continue;
                     }
@@ -199,10 +212,11 @@ namespace ItemSpawnerEnhancement
                 catch (Exception ex)
                 {
                     // 单个物品异常不应摧毁整个目录（参考 ItemBrowser 的逐条隔离）
-                    Plugin.Log.LogWarning("ItemSpawnerPlus: 跳过异常物品 " + (item != null ? item.gameObject.name : "<null>") + ": " + ex.Message);
+                    Plugin.Log.LogWarning("ItemSpawnerPremium: 跳过异常物品 " + (item != null ? item.gameObject.name : "<null>") + ": " + ex.Message);
                 }
             }
             _all.Sort(CompareEntries);
+            Plugin.Favorites.Prune(_all.Select(e => e.prefabName));
         }
 
         private static string ResolveDisplayName(Item item, string prefab)
@@ -427,21 +441,27 @@ namespace ItemSpawnerEnhancement
         private IEnumerator BuildAllEntriesIncremental()
         {
             Building = true;
-            const int batchSize = 24;
-            for (int i = 0; i < _all.Count; i++)
+            try
             {
-                CreateEntry(_all[i]);
-                if ((i + 1) % batchSize == 0 && i + 1 < _all.Count)
+                const int batchSize = 24;
+                for (int i = 0; i < _all.Count; i++)
                 {
-                    yield return null;  // 每批让出一帧，分散 Instantiate 开销
+                    CreateEntry(_all[i]);
+                    if ((i + 1) % batchSize == 0 && i + 1 < _all.Count)
+                    {
+                        yield return null;  // 每批让出一帧，分散 Instantiate 开销
+                    }
                 }
+                // 模板放最后且 inactive（不参与布局），避免被误当条目
+                _template.gameObject.SetActive(false);
+                _template.SetAsLastSibling();
+                Rebuild();
+                Initialized = true;
             }
-            // 模板放最后且 inactive（不参与布局），避免被误当条目
-            _template.gameObject.SetActive(false);
-            _template.SetAsLastSibling();
-            Rebuild();
-            Initialized = true;
-            Building = false;
+            finally
+            {
+                Building = false;
+            }
         }
 
         private void Rebuild()
@@ -591,15 +611,9 @@ namespace ItemSpawnerEnhancement
             {
                 return;
             }
-            // 原模组 Spawn 在未连接/无本地角色时静默返回，这里给出明确提示
-            if (!PhotonNetwork.IsConnected || Character.localCharacter == null)
-            {
-                Plugin.Log.LogWarning("ItemSpawnerPlus: 无法生成 " + item.gameObject.name + "（未连接到房间或本地角色不存在）");
-                return;
-            }
             try
             {
-                ItemSpawnerPlusWindow.Spawn(item);
+                ItemSpawnerPremiumWindow.Spawn(item); // 内部已做前置检查并记录提示
             }
             catch (Exception ex)
             {

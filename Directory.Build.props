@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <!-- PEAK 游戏根目录：换机器/换安装路径只需改这一处 -->
+    <GameDir>D:\SteamLibrary\steamapps\common\PEAK</GameDir>
+  </PropertyGroup>
+</Project>

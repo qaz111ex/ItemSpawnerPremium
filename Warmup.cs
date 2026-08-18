@@ -21,7 +21,8 @@ namespace ItemSpawnerEnhancement
     internal sealed class Warmup : MonoBehaviour
     {
         private float _nextCheckTime;
-        private bool _warmed;                                      // 已预热过（窗口是 DontDestroyOnLoad 单例，预热一次即可）
+        private bool _warmed;                                      // CPU 预热（Setup）已执行过（失败不重试，F5 兜底）
+        private bool _primed;                                      // 渲染 priming 已成功完成（GPU 预热，失败下次 loading 重试）
         private bool _primingRunning;                              // 渲染 priming 协程运行中，防并发
 
         private void Update()
@@ -42,60 +43,53 @@ namespace ItemSpawnerEnhancement
                 return; // 上次协程未结束
             }
 
-            if (_warmed)
-            {
-                return; // 已预热过（含已 Setup / 已失败，失败也不重试，F5 时由 Initialize 兜底）
-            }
-
-            // 窗口是 DontDestroyOnLoad 单例且默认 inactive，FindObjectOfType 找不到，直接取 Plugin.Window 静态引用
-            ItemSpawnerPlusWindow window = Plugin.Window;
+            ItemSpawnerPremiumWindow window = Plugin.Window;
             if (window == null)
             {
                 return; // 窗口尚未创建（GUIManager.Start 还没跑），等下一轮
             }
 
-            ItemListView view = window.GetComponent<ItemListView>();
-            if (view != null && view.Initialized)
+            // 1. CPU 预热（仅一次；失败不重试，F5 时由 Initialize 兜底）
+            if (!_warmed)
             {
-                // 已被别处（F5 兜底）Setup，标记为已处理即可
-                _warmed = true;
-                return;
+                ItemListView view = window.GetComponent<ItemListView>();
+                if (view != null && view.Initialized)
+                {
+                    _warmed = true; // 已被别处（F5 兜底）Setup
+                }
+                else
+                {
+                    ItemDatabase db = SingletonAsset<ItemDatabase>.Instance;
+                    if (db == null || db.Objects == null || db.Objects.Count == 0)
+                    {
+                        return;
+                    }
+                    if (FontFallbackSwapper.instance == null)
+                    {
+                        return;
+                    }
+                    _warmed = true; // 先标记，失败也不重试
+                    try
+                    {
+                        UiEnhancer.Setup(window);
+                    }
+                    catch (Exception ex)
+                    {
+                        Plugin.Log.LogError("ItemSpawnerPremium: 预热 Setup 失败: " + ex);
+                        return;
+                    }
+                }
             }
 
-            ItemDatabase db = SingletonAsset<ItemDatabase>.Instance;
-            if (db == null || db.Objects == null || db.Objects.Count == 0)
-            {
-                return;
-            }
-
-            if (FontFallbackSwapper.instance == null)
-            {
-                return;
-            }
-
-            // 先标记，失败也不重试（F5 时由 Initialize 兜底）
-            _warmed = true;
-
-            // CPU 预热：同步 Setup
-            try
-            {
-                UiEnhancer.Setup(window);
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log.LogError("ItemSpawnerPlus: 预热 Setup 失败: " + ex);
-                return;
-            }
-
-            // 渲染 priming：仅在加载屏幕显示期间执行（此时面板被加载屏幕遮挡，激活不闪烁）
-            if (LoadingScreenHandler.loading)
+            // 2. 渲染 priming：在任一 loading 屏期间执行一次（_primed 成功后置位；失败/放弃则下次 loading 重试）
+            if (!_primed && LoadingScreenHandler.loading)
             {
                 _primingRunning = true;
                 StartCoroutine(PrimingRoutine(window));
             }
         }
 
-        private IEnumerator PrimingRoutine(ItemSpawnerPlusWindow window)
+        private IEnumerator PrimingRoutine(ItemSpawnerPremiumWindow window)
         {
             // 等增量构建完成（Initialized 为 true 时条目才全部 Instantiate 完成）
             ItemListView view = window.GetComponent<ItemListView>();
@@ -110,13 +104,23 @@ namespace ItemSpawnerEnhancement
                 yield break;
             }
 
-            // 临时把 Canvas sortingOrder 降到极低，确保面板渲染在加载屏幕之下、不闪屏
-            Canvas canvas = window.canvasObject.GetComponent<Canvas>();
-            int originalOrder = (canvas != null) ? canvas.sortingOrder : 250;
-            if (canvas != null)
+            // 激活前复检：加载屏若已结束则放弃本次 priming（配合 _primed 标志，下次 loading 重试）
+            if (!LoadingScreenHandler.loading)
             {
-                canvas.sortingOrder = -9999;
+                _primingRunning = false;
+                yield break;
             }
+
+            GameObject canvasGo = window.canvasObject;
+            CanvasGroup cg = canvasGo.GetComponent<CanvasGroup>();
+            if (cg == null)
+            {
+                cg = canvasGo.AddComponent<CanvasGroup>();
+            }
+            float originalAlpha = cg.alpha;
+            bool originalBlocks = cg.blocksRaycasts;
+            cg.alpha = 0f;
+            cg.blocksRaycasts = false;
 
             try
             {
@@ -125,15 +129,18 @@ namespace ItemSpawnerEnhancement
             }
             catch (Exception ex)
             {
-                Plugin.Log.LogWarning("ItemSpawnerPlus: 渲染 priming 启动中断: " + ex.Message);
+                Plugin.Log.LogWarning("ItemSpawnerPremium: 渲染 priming 启动中断: " + ex.Message);
                 try { window.panel.SetActive(false); } catch { }
-                if (canvas != null) { canvas.sortingOrder = originalOrder; }
+                cg.alpha = originalAlpha;
+                cg.blocksRaycasts = originalBlocks;
                 _primingRunning = false;
                 yield break;
             }
 
             yield return null;   // 渲染帧 → GPU 图标纹理上传 + TMP 图集栅格化
             yield return null;   // 再一帧，布局稳定
+
+            _primed = true;      // 2 帧渲染完成，GPU 预热达成（早退/异常路径不会执行到此，下次 loading 可重试）
 
             try
             {
@@ -142,18 +149,16 @@ namespace ItemSpawnerEnhancement
                     window.panel.SetActive(false);  // 若 priming 期间玩家恰好 F5 打开窗口，则不硬隐藏
                 }
                 Canvas.ForceUpdateCanvases();
-                Plugin.Log.LogInfo("ItemSpawnerPlus: 渲染 priming 完成");
+                Plugin.Log.LogInfo("ItemSpawnerPremium: 渲染 priming 完成");
             }
             catch (Exception ex)
             {
-                Plugin.Log.LogWarning("ItemSpawnerPlus: 渲染 priming 关闭中断: " + ex.Message);
+                Plugin.Log.LogWarning("ItemSpawnerPremium: 渲染 priming 关闭中断: " + ex.Message);
             }
             finally
             {
-                if (canvas != null)
-                {
-                    canvas.sortingOrder = originalOrder;  // 恢复原 sortingOrder
-                }
+                cg.alpha = originalAlpha;
+                cg.blocksRaycasts = originalBlocks;
                 _primingRunning = false;
             }
         }

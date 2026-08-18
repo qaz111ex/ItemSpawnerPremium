@@ -70,7 +70,7 @@ namespace ItemSpawnerEnhancement
                 catch (Exception ex)
                 {
                     // 单个语言文件损坏时跳过该文件，保证其余语言仍可用，避免整个 catalog 构造抛异常
-                    Plugin.Log.LogWarning("ItemSpawnerPlus: 加载本地化资源失败 " + resourceName + ": " + ex.Message);
+                    Plugin.Log.LogWarning("ItemSpawnerPremium: 加载本地化资源失败 " + resourceName + ": " + ex.Message);
                 }
             }
         }
@@ -90,7 +90,7 @@ namespace ItemSpawnerEnhancement
             if (_languages.TryGetValue("en", out english))
             {
                 string fallback;
-                if (english.TryGetValue(key, out fallback))
+                if (english.TryGetValue(key, out fallback) && !string.IsNullOrWhiteSpace(fallback))
                 {
                     return fallback;
                 }

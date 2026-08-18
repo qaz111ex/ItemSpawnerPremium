@@ -32,7 +32,7 @@ namespace TinyPinyin
         /// <returns></returns>
         public static string GetPinyin(string str, string separator = " ")
         {
-            return Engine.ToPinyin(str, null, null, separator);
+            return Engine.ToPinyin(str, separator);
         }
 
         /// <summary>
@@ -43,6 +43,10 @@ namespace TinyPinyin
         /// <returns></returns>
         public static string GetPinyinInitials(string str, string separator = "")
         {
+            if (string.IsNullOrEmpty(str))
+            {
+                return str;
+            }
             var result = GetPinyin(str, "|");
             // 修复：获取首字母时字符串中含有|字符会报超出索引范围，https://github.com/hstarorg/TinyPinyin.Net/issues/5
             return string.Join(separator, result.Split('|').Select(x => !string.IsNullOrWhiteSpace(x) && x.Length > 0 ? x.Substring(0, 1) : x).ToArray());

@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net472</TargetFramework>
     <LangVersion>7.3</LangVersion>
-    <AssemblyName>ItemSpawnerPlus</AssemblyName>
+    <AssemblyName>ItemSpawnerPremium</AssemblyName>
     <RootNamespace>ItemSpawnerEnhancement</RootNamespace>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
@@ -13,75 +13,71 @@
 
   <ItemGroup>
     <Reference Include="BepInEx">
-      <HintPath>D:\SteamLibrary\steamapps\common\PEAK\BepInEx\core\BepInEx.dll</HintPath>
+      <HintPath>$(GameDir)\BepInEx\core\BepInEx.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="0Harmony">
-      <HintPath>D:\SteamLibrary\steamapps\common\PEAK\BepInEx\core\0Harmony.dll</HintPath>
+      <HintPath>$(GameDir)\BepInEx\core\0Harmony.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Newtonsoft.Json">
-      <HintPath>D:\SteamLibrary\steamapps\common\PEAK\PEAK_Data\Managed\Newtonsoft.Json.dll</HintPath>
+      <HintPath>$(GameDir)\PEAK_Data\Managed\Newtonsoft.Json.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Unity.InputSystem">
-      <HintPath>D:\SteamLibrary\steamapps\common\PEAK\PEAK_Data\Managed\Unity.InputSystem.dll</HintPath>
+      <HintPath>$(GameDir)\PEAK_Data\Managed\Unity.InputSystem.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Assembly-CSharp">
-      <HintPath>D:\SteamLibrary\steamapps\common\PEAK\PEAK_Data\Managed\Assembly-CSharp.dll</HintPath>
+      <HintPath>$(GameDir)\PEAK_Data\Managed\Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Zorro.Core.Runtime">
-      <HintPath>D:\SteamLibrary\steamapps\common\PEAK\PEAK_Data\Managed\Zorro.Core.Runtime.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Sirenix.Serialization">
-      <HintPath>D:\SteamLibrary\steamapps\common\PEAK\PEAK_Data\Managed\Sirenix.Serialization.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Sirenix.Utilities">
-      <HintPath>D:\SteamLibrary\steamapps\common\PEAK\PEAK_Data\Managed\Sirenix.Utilities.dll</HintPath>
+      <HintPath>$(GameDir)\PEAK_Data\Managed\Zorro.Core.Runtime.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="PhotonUnityNetworking">
-      <HintPath>D:\SteamLibrary\steamapps\common\PEAK\PEAK_Data\Managed\PhotonUnityNetworking.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="PhotonRealtime">
-      <HintPath>D:\SteamLibrary\steamapps\common\PEAK\PEAK_Data\Managed\PhotonRealtime.dll</HintPath>
+      <HintPath>$(GameDir)\PEAK_Data\Managed\PhotonUnityNetworking.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine">
-      <HintPath>D:\SteamLibrary\steamapps\common\PEAK\PEAK_Data\Managed\UnityEngine.dll</HintPath>
+      <HintPath>$(GameDir)\PEAK_Data\Managed\UnityEngine.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.CoreModule">
-      <HintPath>D:\SteamLibrary\steamapps\common\PEAK\PEAK_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+      <HintPath>$(GameDir)\PEAK_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.UI">
-      <HintPath>D:\SteamLibrary\steamapps\common\PEAK\PEAK_Data\Managed\UnityEngine.UI.dll</HintPath>
+      <HintPath>$(GameDir)\PEAK_Data\Managed\UnityEngine.UI.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.UIModule">
-      <HintPath>D:\SteamLibrary\steamapps\common\PEAK\PEAK_Data\Managed\UnityEngine.UIModule.dll</HintPath>
+      <HintPath>$(GameDir)\PEAK_Data\Managed\UnityEngine.UIModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Unity.TextMeshPro">
-      <HintPath>D:\SteamLibrary\steamapps\common\PEAK\PEAK_Data\Managed\Unity.TextMeshPro.dll</HintPath>
+      <HintPath>$(GameDir)\PEAK_Data\Managed\Unity.TextMeshPro.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.TextRenderingModule">
-      <HintPath>D:\SteamLibrary\steamapps\common\PEAK\PEAK_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
+      <HintPath>$(GameDir)\PEAK_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.IMGUIModule">
-      <HintPath>D:\SteamLibrary\steamapps\common\PEAK\PEAK_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
+      <HintPath>$(GameDir)\PEAK_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>$(GameDir)\PEAK_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.ParticleSystemModule">
-      <HintPath>D:\SteamLibrary\steamapps\common\PEAK\PEAK_Data\Managed\UnityEngine.ParticleSystemModule.dll</HintPath>
+      <HintPath>$(GameDir)\PEAK_Data\Managed\UnityEngine.ParticleSystemModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Sirenix.Serialization">
+      <HintPath>$(GameDir)\PEAK_Data\Managed\Sirenix.Serialization.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

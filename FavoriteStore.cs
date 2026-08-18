@@ -16,7 +16,23 @@ namespace ItemSpawnerEnhancement
         public FavoriteStore(BepInEx.Configuration.ConfigEntry<string> entry)
         {
             _entry = entry;
-            _itemNames = Deserialize(entry.Value);
+            HashSet<string> names;
+            if (!TryDeserialize(entry.Value, out names))
+            {
+                _itemNames = new HashSet<string>(StringComparer.Ordinal);
+                try
+                {
+                    _entry.Value = "[]";
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.LogWarning("ItemSpawnerPremium: 修复收藏配置失败: " + ex.Message);
+                }
+            }
+            else
+            {
+                _itemNames = names;
+            }
         }
 
         public bool IsFavorite(string itemName)
@@ -39,12 +55,35 @@ namespace ItemSpawnerEnhancement
             }
             catch (Exception ex)
             {
-                Plugin.Log.LogError("ItemSpawnerPlus: 保存收藏失败: " + ex.Message);
+                Plugin.Log.LogError("ItemSpawnerPremium: 保存收藏失败: " + ex.Message);
                 isFavorite = _itemNames.Contains(itemName);
                 return false;
             }
             _itemNames = updated;
             return true;
+        }
+
+        /// <summary>移除不在有效物品集合中的收藏名（脏数据清理），有变化时持久化。</summary>
+        public void Prune(IEnumerable<string> validNames)
+        {
+            if (validNames == null)
+            {
+                return;
+            }
+            var valid = new HashSet<string>(validNames, StringComparer.Ordinal);
+            int before = _itemNames.Count;
+            _itemNames.RemoveWhere(n => !valid.Contains(n));
+            if (_itemNames.Count != before)
+            {
+                try
+                {
+                    _entry.Value = Serialize(_itemNames);
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.LogWarning("ItemSpawnerPremium: 清理收藏配置失败: " + ex.Message);
+                }
+            }
         }
 
         private static string Serialize(IEnumerable<string> names)
@@ -61,12 +100,12 @@ namespace ItemSpawnerEnhancement
             return JsonConvert.SerializeObject(list);
         }
 
-        private static HashSet<string> Deserialize(string serialized)
+        private static bool TryDeserialize(string serialized, out HashSet<string> set)
         {
             try
             {
                 string[] arr = JsonConvert.DeserializeObject<string[]>(serialized);
-                var set = new HashSet<string>(StringComparer.Ordinal);
+                set = new HashSet<string>(StringComparer.Ordinal);
                 if (arr != null)
                 {
                     foreach (string n in arr)
@@ -77,12 +116,13 @@ namespace ItemSpawnerEnhancement
                         }
                     }
                 }
-                return set;
+                return true;
             }
             catch (Exception ex)
             {
-                Plugin.Log.LogWarning("ItemSpawnerPlus: 收藏配置无效，已忽略: " + ex.Message);
-                return new HashSet<string>(StringComparer.Ordinal);
+                Plugin.Log.LogWarning("ItemSpawnerPremium: 收藏配置无效，已忽略: " + ex.Message);
+                set = null;
+                return false;
             }
         }
     }

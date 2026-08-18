@@ -52,6 +52,7 @@ namespace ItemSpawnerEnhancement
             public Color SearchFill;        // 搜索框底
             public Color ScrollbarBg;       // 滚动条轨道
             public Color ScrollbarHandle;   // 滚动条滑块
+            public Color Placeholder;        // 搜索框占位符
         }
 
         // 手绘风调色板（默认）：暖"卡纸"手绘贴纸风，实色。保留 PEAK 户外暖色基调（米棕 → 奶油 → 浅暖黄），不采用冷色或纯白刺眼。
@@ -72,6 +73,7 @@ namespace ItemSpawnerEnhancement
             SearchFill = new Color(0.70f, 0.62f, 0.50f, 1f),      // 搜索框底色：略深于面板的暖卡其（下凹输入槽感）
             ScrollbarBg = new Color(0.58f, 0.48f, 0.36f, 0.6f),   // 滚动条轨道底色：略深暖棕（半透明）
             ScrollbarHandle = new Color(0.80f, 0.71f, 0.58f, 1f), // 滚动条 handle：较浅暖棕滑块
+            Placeholder = new Color(0.45f, 0.37f, 0.28f, 0.6f),
         };
 
         // 透明风调色板：精确照搬原版 ItemSpawner 的真实调色（从 itemspawnerui AssetBundle 解析，1.2.0 实际显示色）。
@@ -93,6 +95,7 @@ namespace ItemSpawnerEnhancement
             SearchFill = new Color(0.196f, 0.196f, 0.196f, 1f), // 搜索框：原版 SearchBar（不透明深灰）
             ScrollbarBg = new Color(0.387f, 0.387f, 0.387f, 0.392f), // 滚动条轨道：原版 ScrollView 背景（0.387 / 0.392）
             ScrollbarHandle = new Color(1f, 1f, 1f, 0.5f), // 滚动条滑块：半透明白（原版白色 Handle，比轨道亮可辨识）
+            Placeholder = new Color(0.6f, 0.6f, 0.6f, 0.6f),
         };
 
         /// <summary>当前样式调色板：Plugin.UiStyle == "Transparent" 时走透明风，否则手绘风（默认）。</summary>
@@ -116,13 +119,14 @@ namespace ItemSpawnerEnhancement
         private static Color ColorSearchFill { get { return CurrentPalette.SearchFill; } }
         private static Color ColorScrollbarBg { get { return CurrentPalette.ScrollbarBg; } }
         private static Color ColorScrollbarHandle { get { return CurrentPalette.ScrollbarHandle; } }
+        private static Color ColorPlaceholder { get { return CurrentPalette.Placeholder; } }
 
-        /// <summary>构建入口：接收 ItemSpawnerPlusWindow，创建完整 UI 树并挂载 ItemListView。</summary>
-        public static void Setup(ItemSpawnerPlusWindow window)
+        /// <summary>构建入口：接收 ItemSpawnerPremiumWindow，创建完整 UI 树并挂载 ItemListView。</summary>
+        public static void Setup(ItemSpawnerPremiumWindow window)
         {
             if (window == null)
             {
-                Plugin.Log.LogError("ItemSpawnerPlus: Setup abort, window is null.");
+                Plugin.Log.LogError("ItemSpawnerPremium: Setup abort, window is null.");
                 return;
             }
             // 幂等：该窗口已成功 Setup（ItemListView.Initialized）或正在增量构建（Building），避免重复创建分类条/条目。
@@ -153,7 +157,7 @@ namespace ItemSpawnerEnhancement
             }
             catch (Exception ex)
             {
-                Plugin.Log.LogError("ItemSpawnerPlus: ItemListView.Init 失败，已回滚: " + ex);
+                Plugin.Log.LogError("ItemSpawnerPremium: ItemListView.Init 失败，已回滚: " + ex);
                 if (_view != null)
                 {
                     _view.Stop();  // 退订搜索监听 + 语言事件
@@ -167,9 +171,9 @@ namespace ItemSpawnerEnhancement
             OnMajorSelected(MajorCategory.All);
         }
 
-        private static void EnsureCanvas(ItemSpawnerPlusWindow window)
+        private static void EnsureCanvas(ItemSpawnerPremiumWindow window)
         {
-            // Canvas/CanvasScaler/GraphicRaycaster 已在 ItemSpawnerPlusWindow.Awake 创建（挂子物体 canvasObject），
+            // Canvas/CanvasScaler/GraphicRaycaster 已在 ItemSpawnerPremiumWindow.Awake 创建（挂子物体 canvasObject），
             // 这里只做幂等配置（窗口根保持 active，Canvas 作为子物体）。
             GameObject canvasGo = window.canvasObject;
             Canvas canvas = canvasGo.GetComponent<Canvas>();
@@ -190,7 +194,7 @@ namespace ItemSpawnerEnhancement
             root.offsetMax = Vector2.zero;
         }
 
-        private static void Build(ItemSpawnerPlusWindow window)
+        private static void Build(ItemSpawnerPremiumWindow window)
         {
             EnsureSprites();
             // UI 树挂在子 Canvas（canvasObject）下，而不是窗口根
@@ -220,7 +224,8 @@ namespace ItemSpawnerEnhancement
 
         private static TMP_FontAsset ResolveFont()
         {
-            return ItemListView.NeedsCjkFont() ? ItemListView.GetGameBaseFont() : ItemListView.FindFont("DarumaDropOne-Regular SDF");
+            TMP_FontAsset font = ItemListView.NeedsCjkFont() ? ItemListView.GetGameBaseFont() : ItemListView.FindFont("DarumaDropOne-Regular SDF");
+            return font != null ? font : ItemListView.GetGameBaseFont();
         }
 
         private static RectTransform CreatePanel(RectTransform root)
@@ -229,8 +234,8 @@ namespace ItemSpawnerEnhancement
             GameObject shadowGo = new GameObject("PanelShadow", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
             RectTransform shadowRt = (RectTransform)shadowGo.transform;
             shadowRt.SetParent(root, false);
-            shadowRt.anchorMin = new Vector2(0.18f, 0.18f);
-            shadowRt.anchorMax = new Vector2(0.82f, 0.82f);
+            shadowRt.            anchorMin = new Vector2(0.1834f, 0.1068f);
+            shadowRt.            anchorMax = new Vector2(0.8188f, 0.8955f);
             shadowRt.offsetMin = new Vector2(-8f, -16f);   // 比面板略大一圈，向下偏移模拟顶部光源
             shadowRt.offsetMax = new Vector2(8f, 0f);
             Image shadowImg = shadowGo.GetComponent<Image>();
@@ -240,8 +245,8 @@ namespace ItemSpawnerEnhancement
             GameObject go = new GameObject("Panel", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
             RectTransform rt = (RectTransform)go.transform;
             rt.SetParent(root, false);
-            rt.anchorMin = new Vector2(0.18f, 0.18f);
-            rt.anchorMax = new Vector2(0.82f, 0.82f);
+            rt.            anchorMin = new Vector2(0.1834f, 0.1068f);
+            rt.            anchorMax = new Vector2(0.8188f, 0.8955f);
             rt.offsetMin = Vector2.zero;
             rt.offsetMax = Vector2.zero;
 
@@ -288,7 +293,7 @@ namespace ItemSpawnerEnhancement
             placeholder.font = font;
             placeholder.fontSize = 24f;
             placeholder.fontStyle = FontStyles.Italic;
-            placeholder.color = new Color(0.45f, 0.37f, 0.28f, 0.6f);
+            placeholder.color = ColorPlaceholder;
             placeholder.text = Loc.Get("searchPlaceholder");
             placeholder.alignment = TextAlignmentOptions.MidlineLeft;
             placeholder.raycastTarget = false;
@@ -382,7 +387,7 @@ namespace ItemSpawnerEnhancement
             scrollbarRt.anchoredPosition = Vector2.zero;
             scrollbarRt.sizeDelta = new Vector2(14f, 0f);
             Image scrollbarImg = scrollbarGo.GetComponent<Image>();
-            ApplySprite(scrollbarImg, _scrollbarBgSprite);
+            ApplySprite(scrollbarImg, _scrollbarBgSprite, Image.Type.Simple);
             scrollbarImg.raycastTarget = true;
 
             GameObject slidingAreaGo = new GameObject("Sliding Area", typeof(RectTransform));
@@ -401,7 +406,7 @@ namespace ItemSpawnerEnhancement
             handleRt.offsetMin = Vector2.zero;
             handleRt.offsetMax = Vector2.zero;
             Image handleImg = handleGo.GetComponent<Image>();
-            ApplySprite(handleImg, _scrollbarHandleSprite);
+            ApplySprite(handleImg, _scrollbarHandleSprite, Image.Type.Simple);
             handleImg.raycastTarget = true;
 
             Scrollbar sb = scrollbarGo.GetComponent<Scrollbar>();
@@ -515,7 +520,7 @@ namespace ItemSpawnerEnhancement
             Color outline = ColorInkOutline;                  // 深暖棕勾线（与全局"勾线"色一致，手绘统一）
 
             var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
-            texture.name = "ItemSpawnerPlus Heart";
+            texture.name = "ItemSpawnerPremium Heart";
             texture.filterMode = FilterMode.Bilinear;
             texture.wrapMode = TextureWrapMode.Clamp;
             texture.hideFlags = HideFlags.HideAndDontSave;
@@ -575,15 +580,15 @@ namespace ItemSpawnerEnhancement
         /// <summary>确保所有烘焙 Sprite 已生成（描边/白边/填充烘进纹理，0 层 Outline）。</summary>
         private static void EnsureSprites()
         {
-            GetCardSprite(ref _panelSprite, "ItemSpawnerPlus Panel", 16f, 2.5f, ColorInkOutline, ColorInnerHighlight, PanelBackground);
-            GetCardSprite(ref _cardSprite, "ItemSpawnerPlus Card", 9f, 1.5f, ColorInkOutline, ColorInnerHighlight, ColorCardFill);
-            GetCardSprite(ref _searchSprite, "ItemSpawnerPlus Search", 10f, 1.5f, ColorInkOutline, ColorInnerHighlight, ColorSearchFill);
-            GetCardSprite(ref _btnIdleSprite, "ItemSpawnerPlus BtnIdle", 10f, 1.5f, ColorInkOutline, ColorInnerHighlight, ColorIdle);
-            GetCardSprite(ref _btnHoverSprite, "ItemSpawnerPlus BtnHover", 10f, 1.5f, ColorInkOutline, ColorInnerHighlight, ColorHover);
-            GetCardSprite(ref _btnSelectedSprite, "ItemSpawnerPlus BtnSelected", 10f, 1.5f, ColorInkOutline, ColorInnerHighlight, ColorSelected);
-            GetCardSprite(ref _scrollbarBgSprite, "ItemSpawnerPlus ScrollBg", 6f, 1f, ColorInkOutline, ColorInnerHighlight, ColorScrollbarBg);
-            GetCardSprite(ref _scrollbarHandleSprite, "ItemSpawnerPlus ScrollHandle", 6f, 1f, ColorInkOutline, ColorInnerHighlight, ColorScrollbarHandle);
-            GetCardSprite(ref _shadowSprite, "ItemSpawnerPlus Shadow", 16f, 0f, Color.clear, Color.clear, ColorPanelShadow);
+            GetCardSprite(ref _panelSprite, "ItemSpawnerPremium Panel", 16f, 2.5f, ColorInkOutline, ColorInnerHighlight, PanelBackground);
+            GetCardSprite(ref _cardSprite, "ItemSpawnerPremium Card", 9f, 1.5f, ColorInkOutline, ColorInnerHighlight, ColorCardFill);
+            GetCardSprite(ref _searchSprite, "ItemSpawnerPremium Search", 10f, 1.5f, ColorInkOutline, ColorInnerHighlight, ColorSearchFill);
+            GetCardSprite(ref _btnIdleSprite, "ItemSpawnerPremium BtnIdle", 10f, 1.5f, ColorInkOutline, ColorInnerHighlight, ColorIdle);
+            GetCardSprite(ref _btnHoverSprite, "ItemSpawnerPremium BtnHover", 10f, 1.5f, ColorInkOutline, ColorInnerHighlight, ColorHover);
+            GetCardSprite(ref _btnSelectedSprite, "ItemSpawnerPremium BtnSelected", 10f, 1.5f, ColorInkOutline, ColorInnerHighlight, ColorSelected);
+            GetCardSprite(ref _scrollbarBgSprite, "ItemSpawnerPremium ScrollBg", 6f, 1f, ColorInkOutline, ColorInnerHighlight, ColorScrollbarBg);
+            GetCardSprite(ref _scrollbarHandleSprite, "ItemSpawnerPremium ScrollHandle", 6f, 1f, ColorInkOutline, ColorInnerHighlight, ColorScrollbarHandle);
+            GetCardSprite(ref _shadowSprite, "ItemSpawnerPremium Shadow", 16f, 0f, Color.clear, Color.clear, ColorPanelShadow);
         }
 
         /// <summary>按字段惰性生成并缓存卡片 Sprite（描边/白边/填充全部烘进纹理）。</summary>
@@ -597,26 +602,46 @@ namespace ItemSpawnerEnhancement
         }
 
         /// <summary>给 Image 套上烘焙好的 9-slice Sprite（描边已烘进纹理，不再叠 Outline 组件）。</summary>
-        private static void ApplySprite(Image image, Sprite sprite)
+        private static void ApplySprite(Image image, Sprite sprite, Image.Type type = Image.Type.Sliced)
         {
             image.sprite = sprite;
-            image.type = Image.Type.Sliced;
+            image.type = type;
             image.color = Color.white;
+        }
+
+        /// <summary>销毁烘焙 Sprite 及其纹理（样式热重载时释放旧资源，避免 HideAndDontSave 累积泄漏）。</summary>
+        private static void DestroySprite(ref Sprite field)
+        {
+            if (field == null)
+            {
+                return;
+            }
+            if (field.texture != null)
+            {
+                UnityEngine.Object.Destroy(field.texture);
+            }
+            UnityEngine.Object.Destroy(field);
+            field = null;
         }
 
         /// <summary>样式热重载：清空 Sprite 缓存重新烘焙，并按 sprite 名遍历窗口所有 Image 重新套用。</summary>
         public static void OnStyleChanged()
         {
             // 1. 清空缓存（EnsureSprites 惰性烘焙，字段为 null 会按新样式重新生成）
-            _panelSprite = null;
-            _cardSprite = null;
-            _searchSprite = null;
-            _btnIdleSprite = null;
-            _btnHoverSprite = null;
-            _btnSelectedSprite = null;
-            _scrollbarBgSprite = null;
-            _scrollbarHandleSprite = null;
-            _shadowSprite = null;
+            if (_heartTexture != null)
+            {
+                UnityEngine.Object.Destroy(_heartTexture);
+                _heartTexture = null;
+            }
+            DestroySprite(ref _panelSprite);
+            DestroySprite(ref _cardSprite);
+            DestroySprite(ref _searchSprite);
+            DestroySprite(ref _btnIdleSprite);
+            DestroySprite(ref _btnHoverSprite);
+            DestroySprite(ref _btnSelectedSprite);
+            DestroySprite(ref _scrollbarBgSprite);
+            DestroySprite(ref _scrollbarHandleSprite);
+            DestroySprite(ref _shadowSprite);
             EnsureSprites();
 
             // 2. 遍历窗口所有 Image，按旧 sprite.name 套用新 Sprite（保持按钮当前三态/各元素角色不变）
@@ -636,6 +661,18 @@ namespace ItemSpawnerEnhancement
                 if (s != null)
                 {
                     ApplySprite(img, s);
+                }
+            }
+
+            // 心形纹理随样式重烤：重新生成后刷新所有 "Favorite" RawImage 引用（旧纹理已在上方 Destroy）
+            Texture2D heart = GetHeartTexture();
+            RawImage[] raws = Plugin.Window.canvasObject.GetComponentsInChildren<RawImage>(true);
+            for (int i = 0; i < raws.Length; i++)
+            {
+                RawImage raw = raws[i];
+                if (raw != null && raw.gameObject.name == "Favorite")
+                {
+                    raw.texture = heart;
                 }
             }
 
@@ -664,7 +701,11 @@ namespace ItemSpawnerEnhancement
                 {
                     t.color = ColorHint;
                 }
-                // "Placeholder" 硬编码色不动；"Label" 由按钮 Refresh 处理，跳过
+                else if (goName == "Placeholder")
+                {
+                    t.color = ColorPlaceholder;
+                }
+                // "Label" 由按钮 Refresh 处理，跳过
             }
         }
 
@@ -673,15 +714,15 @@ namespace ItemSpawnerEnhancement
         {
             switch (name)
             {
-                case "ItemSpawnerPlus Panel": return _panelSprite;
-                case "ItemSpawnerPlus Card": return _cardSprite;
-                case "ItemSpawnerPlus Search": return _searchSprite;
-                case "ItemSpawnerPlus BtnIdle": return _btnIdleSprite;
-                case "ItemSpawnerPlus BtnHover": return _btnHoverSprite;
-                case "ItemSpawnerPlus BtnSelected": return _btnSelectedSprite;
-                case "ItemSpawnerPlus ScrollBg": return _scrollbarBgSprite;
-                case "ItemSpawnerPlus ScrollHandle": return _scrollbarHandleSprite;
-                case "ItemSpawnerPlus Shadow": return _shadowSprite;
+                case "ItemSpawnerPremium Panel": return _panelSprite;
+                case "ItemSpawnerPremium Card": return _cardSprite;
+                case "ItemSpawnerPremium Search": return _searchSprite;
+                case "ItemSpawnerPremium BtnIdle": return _btnIdleSprite;
+                case "ItemSpawnerPremium BtnHover": return _btnHoverSprite;
+                case "ItemSpawnerPremium BtnSelected": return _btnSelectedSprite;
+                case "ItemSpawnerPremium ScrollBg": return _scrollbarBgSprite;
+                case "ItemSpawnerPremium ScrollHandle": return _scrollbarHandleSprite;
+                case "ItemSpawnerPremium Shadow": return _shadowSprite;
                 default: return null;
             }
         }
@@ -823,7 +864,7 @@ namespace ItemSpawnerEnhancement
             layout.childForceExpandWidth = true;
             layout.childForceExpandHeight = false;
 
-            TMP_FontAsset font = ItemListView.NeedsCjkFont() ? ItemListView.GetGameBaseFont() : ItemListView.FindFont("DarumaDropOne-Regular SDF");
+            TMP_FontAsset font = ResolveFont();
 
             _categoryButtons.Clear();
             _categoryButtonLabels.Clear();

@@ -12,7 +12,7 @@ namespace ItemSpawnerEnhancement
     /// 独立物品生成器窗口：继承游戏 MenuWindow，纯代码构建 UI。
     /// MenuWindow.Open/Close 是 internal，跨程序集用反射调用（缓存 MethodInfo）。
     /// </summary>
-    public class ItemSpawnerPlusWindow : MenuWindow
+    public class ItemSpawnerPremiumWindow : MenuWindow
     {
         private static readonly MethodInfo OpenMethod = AccessTools.Method(typeof(MenuWindow), "Open");
         private static readonly MethodInfo CloseMethod = AccessTools.Method(typeof(MenuWindow), "Close");
@@ -64,11 +64,6 @@ namespace ItemSpawnerEnhancement
         public override bool autoHideOnClose => true;
         public override GameObject panel => canvasObject;
 
-        protected override void Initialize()
-        {
-            base.Initialize();
-        }
-
         protected override void OnOpen()
         {
             base.OnOpen();
@@ -81,10 +76,15 @@ namespace ItemSpawnerEnhancement
         }
 
         /// <summary>用反射切换窗口显隐（MenuWindow.Open/Close 为 internal）。</summary>
-        internal static void ToggleWindow(ItemSpawnerPlusWindow w)
+        internal static void ToggleWindow(ItemSpawnerPremiumWindow w)
         {
             if (w == null)
             {
+                return;
+            }
+            if (OpenMethod == null || CloseMethod == null)
+            {
+                Plugin.Log.LogError("ItemSpawnerPremium: 反射获取 MenuWindow.Open/Close 失败，无法切换窗口");
                 return;
             }
             try
@@ -93,30 +93,39 @@ namespace ItemSpawnerEnhancement
             }
             catch (Exception ex)
             {
-                Plugin.Log.LogError("ItemSpawnerPlus: 切换窗口失败: " + ex);
+                Plugin.Log.LogError("ItemSpawnerPremium: 切换窗口失败: " + ex);
             }
         }
 
         /// <summary>生成物品到本地角色手中（前置 Photon/角色检查后调 SpawnItemInHand）。</summary>
-        internal static void Spawn(Item item)
+        internal static bool Spawn(Item item)
         {
             if (item == null)
             {
-                return;
+                return false;
             }
             if (!PhotonNetwork.IsConnected || Character.localCharacter == null
                 || Character.localCharacter.refs == null
                 || Character.localCharacter.refs.items == null)
             {
-                Plugin.Log.LogWarning("ItemSpawnerPlus: 无法生成 " + item.gameObject.name + "（未连接到房间或本地角色不存在）");
-                return;
+                Plugin.Log.LogWarning("ItemSpawnerPremium: 无法生成 " + item.gameObject.name + "（未连接到房间或本地角色不存在）");
+                return false;
             }
             if (SpawnItemInHandMethod == null)
             {
-                Plugin.Log.LogError("ItemSpawnerPlus: 反射获取 CharacterItems.SpawnItemInHand 失败，无法生成物品");
-                return;
+                Plugin.Log.LogError("ItemSpawnerPremium: 反射获取 CharacterItems.SpawnItemInHand 失败，无法生成物品");
+                return false;
             }
-            SpawnItemInHandMethod.Invoke(Character.localCharacter.refs.items, new object[] { item.gameObject.name });
+            try
+            {
+                SpawnItemInHandMethod.Invoke(Character.localCharacter.refs.items, new object[] { item.gameObject.name });
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogError("ItemSpawnerPremium: 生成物品失败: " + ex);
+                return false;
+            }
         }
     }
 }

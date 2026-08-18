@@ -142,19 +142,9 @@ namespace ItemSpawnerEnhancement
             { "Guidebook", ItemCategory.Equipment },
             { "GuidebookPage", ItemCategory.Props },
             { "GuidebookPage_0_Intro", ItemCategory.Props },
-            { "GuidebookPage_10_Sleepy", ItemCategory.Props },
-            { "GuidebookPage_11_Awake", ItemCategory.Props },
-            { "GuidebookPage_12_Crashout", ItemCategory.Props },
-            { "GuidebookPage_13_FirstTeams", ItemCategory.Props },
             { "GuidebookPage_1_Mushrooms", ItemCategory.Props },
             { "GuidebookPage_2_Campfire", ItemCategory.Props },
             { "GuidebookPage_3_Revival", ItemCategory.Props },
-            { "GuidebookPage_4_Poison", ItemCategory.Props },
-            { "GuidebookPage_5_Zombies", ItemCategory.Props },
-            { "GuidebookPage_6_BodyHeat", ItemCategory.Props },
-            { "GuidebookPage_7_BurningSun", ItemCategory.Props },
-            { "GuidebookPage_8_Magma", ItemCategory.Props },
-            { "GuidebookPage_9_Gloom", ItemCategory.Props },
             { "GuidebookPageScroll Variant", ItemCategory.Props },
             { "HealingDart Variant", ItemCategory.Tools },
             { "HealingPuffShroom", ItemCategory.Consumables },
@@ -242,7 +232,6 @@ namespace ItemSpawnerEnhancement
             { "Bugfix", "NAME_TICK" },
             { "EggRaven", "NAME_EGG" },
             { "EggTurkey", "NAME_BIRD" },
-            { "FireWood", "NAME_STICK" },
             { "NestEgg", "NAME_BIG EGG" },
             { "NestEgg_Raven", "NAME_SMALL EGG" },
             { "Parachute", "NAME_AUTOPARACHUTE" },
@@ -271,7 +260,6 @@ namespace ItemSpawnerEnhancement
         {
             "BaseConstructable Variant",
             "BaseObject",
-            "Berrynana UNUSED",
             "Portable Speaker",
             "Propeller",
             "Skull",
@@ -279,9 +267,16 @@ namespace ItemSpawnerEnhancement
             "foodTest",
         };
 
-        /// <summary>需要隐藏的前缀。</summary>
+        /// <summary>需要隐藏的前缀（棋子等装饰物）。</summary>
         public static readonly string[] HiddenPrefixes = new string[]
         {
+            "C_Bishop",
+            "C_King",
+            "C_Knight",
+            "C_Pawn",
+            "C_Queen",
+            "C_Rook",
+            "GuidebookPage",
         };
 
         /// <summary>需要隐藏的子串。</summary>
