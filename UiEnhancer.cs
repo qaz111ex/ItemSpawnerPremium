@@ -635,6 +635,34 @@ namespace ItemSpawnerEnhancement
                     ApplySprite(img, s);
                 }
             }
+
+            // 重设分类/收藏按钮 label 文字颜色（含选中态，三态文字颜色走新调色板）
+            for (int i = 0; i < _categoryButtons.Count; i++)
+            {
+                RefreshButtonColor(i);
+            }
+            RefreshFavoriteButtonColor();
+
+            // 遍历所有文字组件，按名字重设固定角色的文字颜色（按钮 label 已由上面 Refresh 处理，这里跳过 "Label"）
+            TextMeshProUGUI[] texts = Plugin.Window.canvasObject.GetComponentsInChildren<TextMeshProUGUI>(true);
+            for (int i = 0; i < texts.Length; i++)
+            {
+                TextMeshProUGUI t = texts[i];
+                if (t == null)
+                {
+                    continue;
+                }
+                string goName = t.gameObject.name;
+                if (goName == "ItemName" || goName == "Text")
+                {
+                    t.color = ColorTextIdle;
+                }
+                else if (goName == "RightClickHint")
+                {
+                    t.color = ColorHint;
+                }
+                // "Placeholder" 硬编码色不动；"Label" 由按钮 Refresh 处理，跳过
+            }
         }
 
         /// <summary>按烘焙 Sprite 名返回对应缓存 Sprite（样式热重载时遍历套用）。</summary>
