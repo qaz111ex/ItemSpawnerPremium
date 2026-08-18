@@ -392,7 +392,10 @@ namespace ItemSpawnerEnhancement
             button.targetGraphic = bg;
             button.transition = Selectable.Transition.None;
 
-            // 图标（顶部居中，64×64，在 120×120 卡内合理排布）
+            // 按下反馈（白 → 压暗灰白）：挂在条目根，随模板被 Instantiate 克隆到每个条目；与 onClick / 右键收藏共存
+            go.AddComponent<PressFeedback>();
+
+            // 图标（顶部居中，72×72，放大后与底部文字仍留 2px 间隙不重叠）
             GameObject iconGo = new GameObject("ItemIcon", typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage));
             RectTransform iconRt = (RectTransform)iconGo.transform;
             iconRt.SetParent(rt, false);
@@ -400,7 +403,7 @@ namespace ItemSpawnerEnhancement
             iconRt.anchorMax = new Vector2(0.5f, 1f);
             iconRt.pivot = new Vector2(0.5f, 1f);
             iconRt.anchoredPosition = new Vector2(0f, -6f);
-            iconRt.sizeDelta = new Vector2(64f, 64f);
+            iconRt.sizeDelta = new Vector2(72f, 72f);
             RawImage icon = iconGo.GetComponent<RawImage>();
             icon.raycastTarget = false;
 
@@ -513,11 +516,11 @@ namespace ItemSpawnerEnhancement
             return _heartTexture;
         }
 
-        /// <summary>心形 SDF 采样分层：深入内部 → 红填充；边界一带 → 深暖棕勾线；外部 → 透明。</summary>
+        /// <summary>心形 SDF 采样分层：深入内部 → 红填充；仅边界内侧一圈 → 深暖棕勾线；外部 → 透明。</summary>
         private static Color SampleHeart(float dist, float outlineHalf, Color fill, Color outline)
         {
             if (dist < -outlineHalf) { return fill; }   // 内部主体 → 红填充
-            if (dist < outlineHalf) { return outline; }  // 边界 ±outlineHalf → 深暖棕勾线
+            if (dist < 0f) { return outline; }          // 仅边界内侧 → 深暖棕勾线（外侧透明，消除尖点/两侧的溢出棕像素）
             return new Color(0f, 0f, 0f, 0f);            // 外部 → 透明
         }
 
@@ -559,6 +562,9 @@ namespace ItemSpawnerEnhancement
             const int size = 64;
             const int samplesPerAxis = 4;
             float innerWidth = outlineWidth * 0.6f; // 内描边宽度（约外描边 0.6）
+            // 外描边留白：ink 外描边位于盒外 sd∈[0,outlineWidth]，必须在纹理四周留出该空间，
+            // 否则直边外描边落在纹理外被裁掉（只圆角处可见），造成"圆角深棕、直边无分层"的突兀观感。
+            float pad = outlineWidth + 1f;
             var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
             texture.name = name;
             texture.filterMode = FilterMode.Bilinear;
@@ -567,7 +573,9 @@ namespace ItemSpawnerEnhancement
 
             var pixels = new Color32[size * size];
             Vector2 center = new Vector2(size * 0.5f, size * 0.5f);
-            float half = size * 0.5f - radius;
+            // 盒半宽（-radius 为圆角圆心偏移；-pad 为外描边留白）：盒不再占满整张纹理，直边外描边得以完整绘制。
+            // 注意此处 half 已等价于标准圆角矩形 SDF 的 q = |p-center| - 盒半宽 + radius，勿再额外 +radius（会重复）。
+            float half = size * 0.5f - pad - radius;
             for (int y = 0; y < size; y++)
             {
                 for (int x = 0; x < size; x++)
@@ -596,7 +604,7 @@ namespace ItemSpawnerEnhancement
             texture.SetPixels32(pixels);
             texture.Apply(false, true);
 
-            float border = radius + outlineWidth + 1f; // 9-slice 边框覆盖外描边 + 圆角，保证四角完整
+            float border = pad + radius + outlineWidth + innerWidth + 1f; // 9-slice 边框覆盖留白 + 圆角 + 内外描边，保证四角完整
             Sprite result = Sprite.Create(
                 texture,
                 new Rect(0f, 0f, size, size),
