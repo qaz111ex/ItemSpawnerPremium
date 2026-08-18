@@ -74,24 +74,24 @@ namespace ItemSpawnerEnhancement
             ScrollbarHandle = new Color(0.80f, 0.71f, 0.58f, 1f), // 滚动条 handle：较浅暖棕滑块
         };
 
-        // 透明风调色板：简洁深色半透明面板，参考 1.2.0 / PEAK 原生深色菜单的视觉语言（深灰黑基调 + 浅色文字）。
-        // 核心原则：半透明深色、越透明越好（但不能看不清边界与文字）、无手绘描边（简洁）、浅色文字保证可读。
+        // 透明风调色板：简洁深色面板，对标 1.2.0 / PEAK 原生深色菜单（PEAKLib.ModConfig 深色背景用黑 alpha≈0.8667）。
+        // 核心原则：深灰黑基调 + 浅色文字 + 无手绘描边（简洁）；alpha 抬到 0.8~0.9 接近不透明，不再过透但保留面板/卡片/按钮层次。
         private static readonly Palette TransparentPalette = new Palette
         {
-            Idle = new Color(0.16f, 0.16f, 0.17f, 0.55f),            // 按钮默认：深灰半透明
-            Hover = new Color(0.21f, 0.21f, 0.22f, 0.60f),           // 按钮悬停：略亮一档
-            Selected = new Color(0.28f, 0.28f, 0.30f, 0.62f),        // 按钮选中：三态中最亮（明显但不刺眼）
+            Idle = new Color(0.16f, 0.16f, 0.17f, 0.85f),            // 按钮默认：深灰（接近不透明）
+            Hover = new Color(0.21f, 0.21f, 0.22f, 0.88f),           // 按钮悬停：略亮一档
+            Selected = new Color(0.28f, 0.28f, 0.30f, 0.90f),        // 按钮选中：三态中最亮（明显但不刺眼）
             TextIdle = new Color(0.90f, 0.90f, 0.92f, 1f),           // 默认文字：浅灰白（深底高对比，不透明）
             TextSelected = new Color(1f, 1f, 1f, 1f),                // 选中文字：纯白更亮
             Hint = new Color(0.70f, 0.70f, 0.73f, 1f),               // 提示文字：浅灰（略淡于正文）
-            PanelBackground = new Color(0.11f, 0.11f, 0.12f, 0.48f), // 面板：深灰黑半透明（越透明越好但保留边界）
+            PanelBackground = new Color(0.11f, 0.11f, 0.12f, 0.85f), // 面板：深灰黑（接近不透明，对标原生深色面板）
             InkOutline = new Color(0f, 0f, 0f, 0f),                  // 描边：全透明（去掉手绘勾线，简洁）
             InnerHighlight = new Color(0f, 0f, 0f, 0f),              // 内描边：全透明（简洁）
-            CardFill = new Color(0.19f, 0.19f, 0.20f, 0.42f),        // 卡片：比面板略浅且更透，保留层次
+            CardFill = new Color(0.19f, 0.19f, 0.20f, 0.78f),        // 卡片：比面板略浅且略透一档，保留层次
             PanelShadow = new Color(0f, 0f, 0f, 0.18f),              // 投影：很淡的半透明深色
-            SearchFill = new Color(0.07f, 0.07f, 0.08f, 0.62f),      // 搜索框：深灰半透明（略深于面板，下凹输入槽感）
-            ScrollbarBg = new Color(0.14f, 0.14f, 0.15f, 0.35f),     // 滚动条轨道：深灰半透明
-            ScrollbarHandle = new Color(0.44f, 0.44f, 0.47f, 0.60f), // 滚动条滑块：浅灰半透明（比轨道亮，可辨识）
+            SearchFill = new Color(0.07f, 0.07f, 0.08f, 0.88f),      // 搜索框：略深于面板，下凹输入槽感
+            ScrollbarBg = new Color(0.14f, 0.14f, 0.15f, 0.75f),     // 滚动条轨道：深灰（接近不透明）
+            ScrollbarHandle = new Color(0.44f, 0.44f, 0.47f, 0.85f), // 滚动条滑块：浅灰（比轨道亮，可辨识）
         };
 
         /// <summary>当前样式调色板：Plugin.UiStyle == "Transparent" 时走透明风，否则手绘风（默认）。</summary>
@@ -507,7 +507,8 @@ namespace ItemSpawnerEnhancement
             const float cx = 32f;             // 心形中心 x（归一化坐标原点对应的像素）
             const float cy = 29f;             // 心形中心 y（略低于几何中心，为底部尖角留白）
             const float scale = 22f;          // 心形缩放（归一化单位 → 像素）
-            const float outlineHalf = 1.75f;  // 勾线描边半宽（像素），整圈描边约 3.5px
+            const float outlineHalf = 1.4f;   // 勾线描边半宽（像素），略收窄让描边更柔和自然
+            const float lobeStrength = 0.6f;  // 两瓣强度（=1 为标准心形 V 槽深；<1 更圆润饱满、V 槽更浅、两侧更平滑）
 
             Color fill = new Color(0.86f, 0.32f, 0.34f, 1f); // 暖红填充（与原 favImg.color 一致）
             Color outline = ColorInkOutline;                  // 深暖棕勾线（与全局"勾线"色一致，手绘统一）
@@ -532,11 +533,12 @@ namespace ItemSpawnerEnhancement
                             float nx = (px - cx) / scale;
                             float ny = (py - cy) / scale;
                             float u = nx * nx + ny * ny - 1f;
-                            // 隐式心形方程：内部 f<0，边界 f=0，外部 f>0
-                            float f = u * u * u - nx * nx * ny * ny * ny;
-                            // 解析梯度 ∇f，用于把 f 归一化为近似带符号距离
-                            float gx = 6f * nx * u * u - 2f * nx * ny * ny * ny;
-                            float gy = 6f * ny * u * u - 3f * nx * nx * ny * ny;
+                            // 隐式心形方程（lobeStrength 减弱两瓣强度 → 顶部 V 槽更浅、两侧更平滑、整体更圆润饱满）：
+                            // 内部 f<0，边界 f=0，外部 f>0
+                            float f = u * u * u - lobeStrength * nx * nx * ny * ny * ny;
+                            // 解析梯度 ∇f（含 lobeStrength 系数），用于把 f 归一化为近似带符号距离
+                            float gx = 6f * nx * u * u - 2f * lobeStrength * nx * ny * ny * ny;
+                            float gy = 6f * ny * u * u - 3f * lobeStrength * nx * nx * ny * ny;
                             float glen = Mathf.Sqrt(gx * gx + gy * gy);
                             if (glen < 1e-3f)
                             {
