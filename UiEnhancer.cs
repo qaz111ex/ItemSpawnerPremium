@@ -23,7 +23,16 @@ namespace ItemSpawnerEnhancement
         private static Button _favoriteButton;
         private static TextMeshProUGUI _favoriteButtonLabel;
         private static Texture2D _heartTexture;
-        private static readonly Dictionary<float, Sprite> _roundedSprites = new Dictionary<float, Sprite>();
+        // 烘焙好的 Sprite 缓存（描边/白边/填充全部烘进纹理，0 层 Outline）
+        private static Sprite _panelSprite;
+        private static Sprite _cardSprite;
+        private static Sprite _searchSprite;
+        private static Sprite _btnIdleSprite;
+        private static Sprite _btnHoverSprite;
+        private static Sprite _btnSelectedSprite;
+        private static Sprite _scrollbarBgSprite;
+        private static Sprite _scrollbarHandleSprite;
+        private static Sprite _shadowSprite;
 
         // 配色方案：暖"卡纸"手绘贴纸风。保留 PEAK 户外暖色基调（米棕 → 奶油 → 浅暖黄），不采用冷色或纯白刺眼。
         // 浅底必须配深字：三态文字统一走深暖棕，保证高对比可读。
@@ -46,6 +55,10 @@ namespace ItemSpawnerEnhancement
         private static readonly Color ColorPanelShadow = new Color(0.33f, 0.24f, 0.15f, 0.35f);
         // 搜索框底色：略深于面板的暖卡其（下凹"输入槽"感）。
         private static readonly Color ColorSearchFill = new Color(0.70f, 0.62f, 0.50f, 1f);
+        // 滚动条轨道底色：略深的暖棕（半透明，贴合面板）。
+        private static readonly Color ColorScrollbarBg = new Color(0.58f, 0.48f, 0.36f, 0.6f);
+        // 滚动条 handle：较浅的暖棕滑块（在轨道上更明显）。
+        private static readonly Color ColorScrollbarHandle = new Color(0.80f, 0.71f, 0.58f, 1f);
 
         /// <summary>构建入口：接收 ItemSpawnerPlusWindow，创建完整 UI 树并挂载 ItemListView。</summary>
         public static void Setup(ItemSpawnerPlusWindow window)
@@ -132,6 +145,7 @@ namespace ItemSpawnerEnhancement
 
         private static void Build(ItemSpawnerPlusWindow window)
         {
+            EnsureSprites();
             RectTransform root = window.GetComponent<RectTransform>();
 
             RectTransform panelRt = CreatePanel(root);
@@ -160,8 +174,6 @@ namespace ItemSpawnerEnhancement
 
         private static RectTransform CreatePanel(RectTransform root)
         {
-            const float radius = 16f;
-
             // 纸张投影：面板下方略大、略深的暖棕半透明圆角片，制造"贴纸/卡纸浮起"的层次
             GameObject shadowGo = new GameObject("PanelShadow", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
             RectTransform shadowRt = (RectTransform)shadowGo.transform;
@@ -171,7 +183,7 @@ namespace ItemSpawnerEnhancement
             shadowRt.offsetMin = new Vector2(-8f, -16f);   // 比面板略大一圈，向下偏移模拟顶部光源
             shadowRt.offsetMax = new Vector2(8f, 0f);
             Image shadowImg = shadowGo.GetComponent<Image>();
-            SetRounded(shadowImg, radius, ColorPanelShadow);
+            ApplySprite(shadowImg, _shadowSprite);
             shadowImg.raycastTarget = false;
 
             GameObject go = new GameObject("Panel", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
@@ -183,11 +195,8 @@ namespace ItemSpawnerEnhancement
             rt.offsetMax = Vector2.zero;
 
             Image bg = go.GetComponent<Image>();
-            SetRounded(bg, radius, PanelBackground); // 圆角牛皮纸面板
+            ApplySprite(bg, _panelSprite); // 圆角牛皮纸面板（描边已烘进 Sprite）
             bg.raycastTarget = true;
-
-            // 面板最厚的双层描边（层级最强：面板 > 卡片 > 按钮）
-            AddHandDrawnOutline(go, 2.5f, ColorInkOutline, ColorInnerHighlight);
             return rt;
         }
 
@@ -204,9 +213,8 @@ namespace ItemSpawnerEnhancement
             rt.sizeDelta = new Vector2(0f, 50f);
 
             Image bg = go.GetComponent<Image>();
-            SetRounded(bg, 10f, ColorSearchFill); // 圆角暖卡其输入槽
+            ApplySprite(bg, _searchSprite); // 圆角暖卡其输入槽（描边已烘进 Sprite）
             bg.raycastTarget = true;
-            AddHandDrawnOutline(go, 1.5f, ColorInkOutline, ColorInnerHighlight);
 
             // 文本显示区（RectMask2D 裁剪超长输入）
             GameObject areaGo = new GameObject("Text Area", typeof(RectTransform), typeof(CanvasRenderer), typeof(RectMask2D));
@@ -294,7 +302,7 @@ namespace ItemSpawnerEnhancement
             contentRt.sizeDelta = Vector2.zero;
 
             GridLayoutGroup grid = contentGo.GetComponent<GridLayoutGroup>();
-            grid.cellSize = new Vector2(90f, 90f);       // 正方形格子（改回紧凑 90×90）
+            grid.cellSize = new Vector2(120f, 120f);    // 正方形格子（120×120）
             grid.spacing = new Vector2(12f, 12f);
             grid.padding = new RectOffset(8, 8, 8, 8);
             grid.constraint = GridLayoutGroup.Constraint.Flexible;   // 自动换行
@@ -313,6 +321,45 @@ namespace ItemSpawnerEnhancement
             scroll.movementType = ScrollRect.MovementType.Clamped;
             scroll.scrollSensitivity = 40f;
 
+            // 垂直滚动条（Unity 标准结构：Scrollbar → Sliding Area → Handle）
+            GameObject scrollbarGo = new GameObject("Scrollbar", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Scrollbar));
+            RectTransform scrollbarRt = (RectTransform)scrollbarGo.transform;
+            scrollbarRt.SetParent(scrollRt, false);
+            scrollbarRt.anchorMin = new Vector2(1f, 0f);
+            scrollbarRt.anchorMax = new Vector2(1f, 1f);
+            scrollbarRt.pivot = new Vector2(1f, 0.5f);
+            scrollbarRt.anchoredPosition = Vector2.zero;
+            scrollbarRt.sizeDelta = new Vector2(14f, 0f);
+            Image scrollbarImg = scrollbarGo.GetComponent<Image>();
+            ApplySprite(scrollbarImg, _scrollbarBgSprite);
+            scrollbarImg.raycastTarget = true;
+
+            GameObject slidingAreaGo = new GameObject("Sliding Area", typeof(RectTransform));
+            RectTransform slidingAreaRt = (RectTransform)slidingAreaGo.transform;
+            slidingAreaRt.SetParent(scrollbarRt, false);
+            slidingAreaRt.anchorMin = Vector2.zero;
+            slidingAreaRt.anchorMax = Vector2.one;
+            slidingAreaRt.offsetMin = new Vector2(4f, 4f);
+            slidingAreaRt.offsetMax = new Vector2(-4f, -4f);
+
+            GameObject handleGo = new GameObject("Handle", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            RectTransform handleRt = (RectTransform)handleGo.transform;
+            handleRt.SetParent(slidingAreaRt, false);
+            handleRt.anchorMin = Vector2.zero;
+            handleRt.anchorMax = Vector2.one;
+            handleRt.offsetMin = Vector2.zero;
+            handleRt.offsetMax = Vector2.zero;
+            Image handleImg = handleGo.GetComponent<Image>();
+            ApplySprite(handleImg, _scrollbarHandleSprite);
+            handleImg.raycastTarget = true;
+
+            Scrollbar sb = scrollbarGo.GetComponent<Scrollbar>();
+            sb.handleRect = handleRt;
+            sb.targetGraphic = handleImg;
+            sb.direction = Scrollbar.Direction.BottomToTop;
+            scroll.verticalScrollbar = sb;
+            scroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.Permanent;
+
             content = contentRt;
         }
 
@@ -325,35 +372,34 @@ namespace ItemSpawnerEnhancement
             GameObject go = new GameObject("ItemEntry", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button), typeof(LayoutElement));
             RectTransform rt = (RectTransform)go.transform;
             rt.SetParent(content, false);
-            rt.sizeDelta = new Vector2(90f, 90f);
+            rt.sizeDelta = new Vector2(120f, 120f);
 
             LayoutElement layout = go.GetComponent<LayoutElement>();
-            layout.preferredWidth = 90f;
-            layout.preferredHeight = 90f;
+            layout.preferredWidth = 120f;
+            layout.preferredHeight = 120f;
             layout.flexibleWidth = 0f;
 
             Image bg = go.GetComponent<Image>();
-            SetRounded(bg, 9f, ColorCardFill); // 圆角奶油卡纸卡片，从面板上浮起
+            ApplySprite(bg, _cardSprite); // 圆角奶油卡纸卡片（描边已烘进 Sprite）
             bg.raycastTarget = true;
-            AddHandDrawnOutline(go, 1.5f, ColorInkOutline, ColorInnerHighlight);
 
             Button button = go.GetComponent<Button>();
             button.targetGraphic = bg;
             button.transition = Selectable.Transition.None;
 
-            // 图标（顶部居中，48×48，在 90×90 卡内合理排布）
+            // 图标（顶部居中，64×64，在 120×120 卡内合理排布）
             GameObject iconGo = new GameObject("ItemIcon", typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage));
             RectTransform iconRt = (RectTransform)iconGo.transform;
             iconRt.SetParent(rt, false);
             iconRt.anchorMin = new Vector2(0.5f, 1f);
             iconRt.anchorMax = new Vector2(0.5f, 1f);
             iconRt.pivot = new Vector2(0.5f, 1f);
-            iconRt.anchoredPosition = new Vector2(0f, -4f);
-            iconRt.sizeDelta = new Vector2(48f, 48f);
+            iconRt.anchoredPosition = new Vector2(0f, -6f);
+            iconRt.sizeDelta = new Vector2(64f, 64f);
             RawImage icon = iconGo.GetComponent<RawImage>();
             icon.raycastTarget = false;
 
-            // 文字（底部居中，字号缩小到 12 仍可读，最多 2 行，超出省略号）
+            // 文字（底部居中，字号 14 仍可读，最多 2 行，超出省略号）
             GameObject nameGo = new GameObject("ItemName", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
             RectTransform nameRt = (RectTransform)nameGo.transform;
             nameRt.SetParent(rt, false);
@@ -363,10 +409,10 @@ namespace ItemSpawnerEnhancement
             nameRt.offsetMin = Vector2.zero;
             nameRt.offsetMax = Vector2.zero;
             nameRt.anchoredPosition = new Vector2(0f, 4f);
-            nameRt.sizeDelta = new Vector2(-8f, 28f);
+            nameRt.sizeDelta = new Vector2(-10f, 36f);
             TextMeshProUGUI name = nameGo.GetComponent<TextMeshProUGUI>();
             name.font = font;
-            name.fontSize = 12f;
+            name.fontSize = 14f;
             name.color = ColorTextIdle;
             name.alignment = TextAlignmentOptions.Center;   // 居中
             name.textWrappingMode = TextWrappingModes.Normal; // 换行（enableWordWrapping 已弃用）
@@ -374,7 +420,7 @@ namespace ItemSpawnerEnhancement
             name.maxVisibleLines = 2;                        // 最多 2 行
             name.raycastTarget = false;
 
-            // 心形标记（右上角，收藏时显示，缩小适配 90×90 卡）
+            // 心形标记（右上角，收藏时显示，适配 120×120 卡）
             GameObject favGo = new GameObject("Favorite", typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage));
             RectTransform favRt = (RectTransform)favGo.transform;
             favRt.SetParent(rt, false);
@@ -382,7 +428,7 @@ namespace ItemSpawnerEnhancement
             favRt.anchorMax = new Vector2(1f, 1f);
             favRt.pivot = new Vector2(1f, 1f);
             favRt.anchoredPosition = new Vector2(-4f, -4f);
-            favRt.sizeDelta = new Vector2(20f, 20f);
+            favRt.sizeDelta = new Vector2(24f, 24f);
             RawImage favImg = favGo.GetComponent<RawImage>();
             favImg.texture = GetHeartTexture();
             favImg.color = new Color(0.86f, 0.32f, 0.34f, 1f); // 暖红心形
@@ -436,26 +482,46 @@ namespace ItemSpawnerEnhancement
             return _heartTexture;
         }
 
-        /// <summary>程序化生成 9-slice 圆角矩形 Sprite（按圆角半径缓存，复用避免重复生成）。</summary>
-        private static Sprite GetRoundedSprite(float radius)
+        /// <summary>确保所有烘焙 Sprite 已生成（描边/白边/填充烘进纹理，0 层 Outline）。</summary>
+        private static void EnsureSprites()
         {
-            Sprite sprite;
-            if (_roundedSprites.TryGetValue(radius, out sprite))
-            {
-                return sprite;
-            }
-            sprite = CreateRoundedSprite(radius);
-            _roundedSprites[radius] = sprite;
-            return sprite;
+            GetCardSprite(ref _panelSprite, "ItemSpawnerPlus Panel", 16f, 2.5f, ColorInkOutline, ColorInnerHighlight, PanelBackground);
+            GetCardSprite(ref _cardSprite, "ItemSpawnerPlus Card", 9f, 1.5f, ColorInkOutline, ColorInnerHighlight, ColorCardFill);
+            GetCardSprite(ref _searchSprite, "ItemSpawnerPlus Search", 10f, 1.5f, ColorInkOutline, ColorInnerHighlight, ColorSearchFill);
+            GetCardSprite(ref _btnIdleSprite, "ItemSpawnerPlus BtnIdle", 10f, 1.5f, ColorInkOutline, ColorInnerHighlight, ColorIdle);
+            GetCardSprite(ref _btnHoverSprite, "ItemSpawnerPlus BtnHover", 10f, 1.5f, ColorInkOutline, ColorInnerHighlight, ColorHover);
+            GetCardSprite(ref _btnSelectedSprite, "ItemSpawnerPlus BtnSelected", 10f, 1.5f, ColorInkOutline, ColorInnerHighlight, ColorSelected);
+            GetCardSprite(ref _scrollbarBgSprite, "ItemSpawnerPlus ScrollBg", 6f, 1f, ColorInkOutline, ColorInnerHighlight, ColorScrollbarBg);
+            GetCardSprite(ref _scrollbarHandleSprite, "ItemSpawnerPlus ScrollHandle", 6f, 1f, ColorInkOutline, ColorInnerHighlight, ColorScrollbarHandle);
+            GetCardSprite(ref _shadowSprite, "ItemSpawnerPlus Shadow", 16f, 0f, Color.clear, Color.clear, ColorPanelShadow);
         }
 
-        /// <summary>生成抗锯齿圆角矩形纹理并打包成 9-slice Sprite（思路同 RuntimeUiAssets.CreateRoundedRectSprite）。</summary>
-        private static Sprite CreateRoundedSprite(float radius)
+        /// <summary>按字段惰性生成并缓存卡片 Sprite（描边/白边/填充全部烘进纹理）。</summary>
+        private static Sprite GetCardSprite(ref Sprite field, string name, float radius, float outlineWidth, Color ink, Color inner, Color fill)
+        {
+            if (field == null)
+            {
+                field = CreateCardSprite(name, radius, outlineWidth, ink, inner, fill);
+            }
+            return field;
+        }
+
+        /// <summary>给 Image 套上烘焙好的 9-slice Sprite（描边已烘进纹理，不再叠 Outline 组件）。</summary>
+        private static void ApplySprite(Image image, Sprite sprite)
+        {
+            image.sprite = sprite;
+            image.type = Image.Type.Sliced;
+            image.color = Color.white;
+        }
+
+        /// <summary>用 SDF 生成带描边/白边/填充的 9-slice 卡片 Sprite（64×64，4×4 超采样抗锯齿）。</summary>
+        private static Sprite CreateCardSprite(string name, float radius, float outlineWidth, Color ink, Color inner, Color fill)
         {
             const int size = 64;
             const int samplesPerAxis = 4;
+            float innerWidth = outlineWidth * 0.6f; // 内描边宽度（约外描边 0.6）
             var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
-            texture.name = "ItemSpawnerPlus Rounded r" + radius;
+            texture.name = name;
             texture.filterMode = FilterMode.Bilinear;
             texture.wrapMode = TextureWrapMode.Clamp;
             texture.hideFlags = HideFlags.HideAndDontSave;
@@ -467,32 +533,31 @@ namespace ItemSpawnerEnhancement
             {
                 for (int x = 0; x < size; x++)
                 {
-                    int inside = 0;
+                    float r = 0f, g = 0f, b = 0f, a = 0f;
                     for (int sy = 0; sy < samplesPerAxis; sy++)
                     {
                         for (int sx = 0; sx < samplesPerAxis; sx++)
                         {
-                            Vector2 p = new Vector2(
-                                x + (sx + 0.5f) / samplesPerAxis,
-                                y + (sy + 0.5f) / samplesPerAxis);
-                            Vector2 d = new Vector2(
-                                Mathf.Abs(p.x - center.x) - half,
-                                Mathf.Abs(p.y - center.y) - half);
+                            Vector2 p = new Vector2(x + (sx + 0.5f) / samplesPerAxis, y + (sy + 0.5f) / samplesPerAxis);
+                            Vector2 d = new Vector2(Mathf.Abs(p.x - center.x) - half, Mathf.Abs(p.y - center.y) - half);
                             Vector2 outside = new Vector2(Mathf.Max(d.x, 0f), Mathf.Max(d.y, 0f));
                             float sd = outside.magnitude + Mathf.Min(Mathf.Max(d.x, d.y), 0f) - radius;
-                            if (sd <= 0f)
-                            {
-                                inside++;
-                            }
+                            Color c = SampleCard(sd, outlineWidth, innerWidth, ink, inner, fill);
+                            r += c.r; g += c.g; b += c.b; a += c.a;
                         }
                     }
-                    pixels[y * size + x] = new Color32(255, 255, 255, (byte)(255 * inside / (samplesPerAxis * samplesPerAxis)));
+                    int n = samplesPerAxis * samplesPerAxis;
+                    pixels[y * size + x] = new Color32(
+                        (byte)(Mathf.Clamp01(r / n) * 255f),
+                        (byte)(Mathf.Clamp01(g / n) * 255f),
+                        (byte)(Mathf.Clamp01(b / n) * 255f),
+                        (byte)(Mathf.Clamp01(a / n) * 255f));
                 }
             }
             texture.SetPixels32(pixels);
             texture.Apply(false, true);
 
-            float border = radius + 1f; // 9-slice 边框略大于圆角半径，保证四角完整不被拉伸
+            float border = radius + outlineWidth + 1f; // 9-slice 边框覆盖外描边 + 圆角，保证四角完整
             Sprite result = Sprite.Create(
                 texture,
                 new Rect(0f, 0f, size, size),
@@ -506,35 +571,13 @@ namespace ItemSpawnerEnhancement
             return result;
         }
 
-        /// <summary>给 Image 套上圆角 Sprite + 填充色（Sliced 模式才会启用 9-slice 圆角）。</summary>
-        private static void SetRounded(Image image, float radius, Color fill)
+        /// <summary>SDF 采样：sd 负值在圆角矩形内部，正值在外部。中心填充 → 奶油内描边 → 深墨外描边 → 透明。</summary>
+        private static Color SampleCard(float sd, float outlineWidth, float innerWidth, Color ink, Color inner, Color fill)
         {
-            image.sprite = GetRoundedSprite(radius);
-            image.type = Image.Type.Sliced;
-            image.color = fill;
-        }
-
-        /// <summary>
-        /// 手绘勾线：叠加多层 Outline 制造「深色墨水外描边 + 浅色内描边」的双层手绘贴纸感。
-        /// 墨线用两条对角线偏移合成覆盖四边的粗描边（四角略重，天然的手绘马克笔质感）；
-        /// 浅色内描边贴边覆盖墨线内缘，形成"白边 + 勾线"层次。
-        /// </summary>
-        private static void AddHandDrawnOutline(GameObject go, float thickness, Color ink, Color inner)
-        {
-            float t = thickness;
-            float innerT = Mathf.Max(0.6f, t * 0.5f);
-            AddOutline(go, ink, new Vector2(t, -t));
-            AddOutline(go, ink, new Vector2(-t, t));
-            AddOutline(go, inner, new Vector2(innerT, -innerT));
-            AddOutline(go, inner, new Vector2(-innerT, innerT));
-        }
-
-        private static void AddOutline(GameObject go, Color color, Vector2 distance)
-        {
-            Outline outline = go.AddComponent<Outline>();
-            outline.effectColor = color;
-            outline.effectDistance = distance;
-            outline.useGraphicAlpha = true;
+            if (sd < -innerWidth) { return fill; }   // 深入中心 → 填充
+            if (sd < 0f) { return inner; }           // 紧贴边界内侧 → 奶油白内描边
+            if (sd < outlineWidth) { return ink; }   // 边界外侧 → 深墨外描边
+            return new Color(0f, 0f, 0f, 0f);        // 更外 → 透明
         }
 
         /// <summary>语言切换时刷新分类按钮的文字与字体（按钮 label 在创建时按当时语言固化）。</summary>
@@ -617,22 +660,19 @@ namespace ItemSpawnerEnhancement
             rt.sizeDelta = new Vector2(0f, 50f);
 
             Image image = go.GetComponent<Image>();
-            SetRounded(image, 10f, ColorIdle); // 圆角暖米棕填充
+            ApplySprite(image, _btnIdleSprite); // 圆角暖米棕填充（描边已烘进 Sprite）
             image.raycastTarget = true;
 
             Button button = go.GetComponent<Button>();
             button.targetGraphic = image;
             button.transition = Selectable.Transition.None;
 
-            // 手绘双层描边（深墨外描边 + 浅奶油内描边）
-            AddHandDrawnOutline(go, 1.5f, ColorInkOutline, ColorInnerHighlight);
-
             button.onClick.AddListener(OnFavoriteToggled);
 
             // 悬停反馈（与分类按钮一致，仅非选中态提亮）
             EventTrigger trigger = go.AddComponent<EventTrigger>();
             EventTrigger.Entry enter = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
-            enter.callback.AddListener(delegate { if (_view == null || !_view.FavoritesOnly) image.color = ColorHover; });
+            enter.callback.AddListener(delegate { if (_view == null || !_view.FavoritesOnly) image.sprite = _btnHoverSprite; });
             EventTrigger.Entry exit = new EventTrigger.Entry { eventID = EventTriggerType.PointerExit };
             exit.callback.AddListener(delegate { RefreshFavoriteButtonColor(); });
             trigger.triggers.Add(enter);
@@ -697,7 +737,7 @@ namespace ItemSpawnerEnhancement
             Image image = _favoriteButton.targetGraphic as Image;
             if (image != null)
             {
-                image.color = fav ? ColorSelected : ColorIdle;
+                image.sprite = fav ? _btnSelectedSprite : _btnIdleSprite;
             }
             if (_favoriteButtonLabel != null)
             {
@@ -714,24 +754,20 @@ namespace ItemSpawnerEnhancement
                                                  // Image 覆盖整个 RectTransform → 可点击范围 = 按钮大小
 
             Image image = go.GetComponent<Image>();
-            // 不使用 UISprite：该 sprite 为圆角且带投影纹理，不透明填充时暴露圆角与像素阴影。
-            // 改用程序化圆角 Sprite + 双层手绘描边（深墨外描边 + 浅奶油内描边）。
-            SetRounded(image, 10f, ColorIdle);
+            ApplySprite(image, _btnIdleSprite); // 圆角暖米棕按钮（描边已烘进 Sprite）
             image.raycastTarget = true;
 
             Button button = go.GetComponent<Button>();
             button.targetGraphic = image;
-            button.transition = Selectable.Transition.None; // 颜色由代码统一管理
-
-            AddHandDrawnOutline(go, 1.5f, ColorInkOutline, ColorInnerHighlight);
+            button.transition = Selectable.Transition.None; // 状态由代码统一换 Sprite
 
             MajorCategory captured = major;
             button.onClick.AddListener(() => OnMajorSelected(captured));
 
-            // 悬停反馈：PointerEnter 提亮填充为暖棕，PointerExit 恢复（仅非选中按钮，选中态不被打断）
+            // 悬停反馈：PointerEnter 换 hover Sprite，PointerExit 恢复（仅非选中按钮，选中态不被打断）
             EventTrigger trigger = go.AddComponent<EventTrigger>();
             EventTrigger.Entry enter = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
-            enter.callback.AddListener(delegate { if ((MajorCategory)_categoryButtons.IndexOf(button) != _currentMajor) image.color = ColorHover; });
+            enter.callback.AddListener(delegate { if ((MajorCategory)_categoryButtons.IndexOf(button) != _currentMajor) image.sprite = _btnHoverSprite; });
             EventTrigger.Entry exit = new EventTrigger.Entry { eventID = EventTriggerType.PointerExit };
             exit.callback.AddListener(delegate { RefreshButtonColor(_categoryButtons.IndexOf(button)); });
             trigger.triggers.Add(enter);
@@ -778,7 +814,7 @@ namespace ItemSpawnerEnhancement
             Image image = _categoryButtons[index].targetGraphic as Image;
             if (image != null)
             {
-                image.color = selected ? ColorSelected : ColorIdle;
+                image.sprite = selected ? _btnSelectedSprite : _btnIdleSprite;
             }
             // 三态文字均为深暖棕，保证浅色底上清晰可读；选中文字略深一档，配合最浅的选中底更稳
             if (index < _categoryButtonLabels.Count)
