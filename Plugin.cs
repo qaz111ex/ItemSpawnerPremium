@@ -21,6 +21,9 @@ namespace ItemSpawnerEnhancement
         /// <summary>收藏集合（Config 持久化），供 ItemListView/UiEnhancer 使用。</summary>
         internal static FavoriteStore Favorites { get; private set; }
 
+        /// <summary>UI 样式（Config 启动时读取，重启生效）：HandDrawn=手绘风；Transparent=透明风。</summary>
+        internal static string UiStyle { get; private set; }
+
         private static ConfigEntry<Key> _toggleKey;
 
         private void Awake()
@@ -35,6 +38,12 @@ namespace ItemSpawnerEnhancement
                 "ToggleKey",
                 Key.F5,
                 "打开/关闭物品生成器窗口的按键（Unity.InputSystem.Key 枚举值）。");
+
+            UiStyle = Config.Bind<string>(
+                "General",
+                "Style",
+                "HandDrawn",
+                "UI 样式：HandDrawn=手绘风（默认，实色暖卡纸）；Transparent=透明风（面板半透明，搜索框不透明）。").Value;
 
             Favorites = new FavoriteStore(Config.Bind<string>("Favorites", "ItemNames", "[]",
                 "收藏物品的 prefab 名（JSON 数组），在物品生成器 UI 中右键物品管理。"));

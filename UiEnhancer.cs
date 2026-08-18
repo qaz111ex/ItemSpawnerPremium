@@ -35,32 +35,86 @@ namespace ItemSpawnerEnhancement
         private static Sprite _scrollbarHandleSprite;
         private static Sprite _shadowSprite;
 
-        // 配色方案：暖"卡纸"手绘贴纸风。保留 PEAK 户外暖色基调（米棕 → 奶油 → 浅暖黄），不采用冷色或纯白刺眼。
+        /// <summary>一套完整 UI 配色（按样式切换）。颜色通过下方 getter 属性按当前样式取值，所有引用点无需改动。</summary>
+        private sealed class Palette
+        {
+            public Color Idle;              // 按钮默认填充
+            public Color Hover;             // 按钮悬停
+            public Color Selected;          // 按钮选中
+            public Color TextIdle;          // 默认文字
+            public Color TextSelected;      // 选中文字
+            public Color Hint;              // 右键提示文字
+            public Color PanelBackground;   // 面板底
+            public Color InkOutline;        // 深墨描边（勾线色）
+            public Color InnerHighlight;    // 奶油白内描边
+            public Color CardFill;          // 卡片底
+            public Color PanelShadow;       // 面板投影
+            public Color SearchFill;        // 搜索框底
+            public Color ScrollbarBg;       // 滚动条轨道
+            public Color ScrollbarHandle;   // 滚动条滑块
+        }
+
+        // 手绘风调色板（默认）：暖"卡纸"手绘贴纸风，实色。保留 PEAK 户外暖色基调（米棕 → 奶油 → 浅暖黄），不采用冷色或纯白刺眼。
         // 浅底必须配深字：三态文字统一走深暖棕，保证高对比可读。
-        private static readonly Color ColorIdle = new Color(0.82f, 0.75f, 0.63f, 1f);        // 默认填充：浅暖米棕（卡纸基色）
-        private static readonly Color ColorHover = new Color(0.90f, 0.84f, 0.74f, 1f);       // 悬停：更亮的奶油米黄（比默认更亮，明显抬升）
-        private static readonly Color ColorSelected = new Color(0.96f, 0.91f, 0.81f, 1f);    // 选中：最浅的暖黄高亮（三态中最亮，突出选中）
-        private static readonly Color ColorTextIdle = new Color(0.28f, 0.21f, 0.14f, 1f);    // 默认/悬停文字：深暖棕（浅色底上高对比）
-        private static readonly Color ColorTextSelected = new Color(0.22f, 0.16f, 0.10f, 1f); // 选中文字：更深的暖棕（最浅选中底上更稳）
-        private static readonly Color ColorHint = new Color(0.50f, 0.42f, 0.32f, 1f);          // 右键收藏提示：柔和暖棕（比正文略淡，示意辅助提示）
+        private static readonly Palette HandDrawnPalette = new Palette
+        {
+            Idle = new Color(0.82f, 0.75f, 0.63f, 1f),            // 默认填充：浅暖米棕（卡纸基色）
+            Hover = new Color(0.90f, 0.84f, 0.74f, 1f),           // 悬停：更亮的奶油米黄（比默认更亮，明显抬升）
+            Selected = new Color(0.96f, 0.91f, 0.81f, 1f),        // 选中：最浅的暖黄高亮（三态中最亮，突出选中）
+            TextIdle = new Color(0.28f, 0.21f, 0.14f, 1f),        // 默认/悬停文字：深暖棕（浅色底上高对比）
+            TextSelected = new Color(0.22f, 0.16f, 0.10f, 1f),    // 选中文字：更深的暖棕（最浅选中底上更稳）
+            Hint = new Color(0.50f, 0.42f, 0.32f, 1f),            // 右键收藏提示：柔和暖棕（比正文略淡，示意辅助提示）
+            PanelBackground = new Color(0.76f, 0.69f, 0.56f, 1f), // 面板底色：暖卡纸（比分类按钮略深一档）
+            InkOutline = new Color(0.36f, 0.25f, 0.15f, 1f),      // 手绘勾线色：深咖啡棕墨水描边
+            InnerHighlight = new Color(0.99f, 0.94f, 0.85f, 1f),  // 内层浅色描边：暖奶油白（贴纸白边 + 双层勾线）
+            CardFill = new Color(0.89f, 0.83f, 0.73f, 1f),        // 卡片底色：比面板略亮的奶油卡纸
+            PanelShadow = new Color(0.33f, 0.24f, 0.15f, 0.35f),  // 面板投影：深暖棕半透明
+            SearchFill = new Color(0.70f, 0.62f, 0.50f, 1f),      // 搜索框底色：略深于面板的暖卡其（下凹输入槽感）
+            ScrollbarBg = new Color(0.58f, 0.48f, 0.36f, 0.6f),   // 滚动条轨道底色：略深暖棕（半透明）
+            ScrollbarHandle = new Color(0.80f, 0.71f, 0.58f, 1f), // 滚动条 handle：较浅暖棕滑块
+        };
 
-        // 面板底色（暖卡纸）：比分类按钮略深一档，衬托按钮与条目（用户喜欢的牛皮纸基调，保留）。
-        private static readonly Color PanelBackground = new Color(0.76f, 0.69f, 0.56f, 1f);
+        // 透明风调色板：整套面板半透明（面板/卡片/按钮/滚动条带 alpha），保留暖卡纸基调与手绘勾线感；
+        // 搜索框保持不透明（用户要求），文字保持深暖棕不透明（半透明底上仍高对比清晰可读）。
+        private static readonly Palette TransparentPalette = new Palette
+        {
+            Idle = new Color(0.82f, 0.75f, 0.63f, 0.55f),            // 按钮默认：米棕半透明
+            Hover = new Color(0.90f, 0.84f, 0.74f, 0.65f),           // 按钮悬停：奶油半透明（略更亮）
+            Selected = new Color(0.96f, 0.91f, 0.81f, 0.78f),        // 按钮选中：暖黄半透明（三态中最亮）
+            TextIdle = new Color(0.28f, 0.21f, 0.14f, 1f),           // 文字不透明，保持高对比可读
+            TextSelected = new Color(0.22f, 0.16f, 0.10f, 1f),       // 选中文字不透明
+            Hint = new Color(0.50f, 0.42f, 0.32f, 1f),               // 提示文字不透明
+            PanelBackground = new Color(0.76f, 0.69f, 0.56f, 0.65f), // 面板：暖棕半透明
+            InkOutline = new Color(0.36f, 0.25f, 0.15f, 0.8f),       // 深暖棕勾线：alpha 略降，保留手绘描边感
+            InnerHighlight = new Color(0.99f, 0.94f, 0.85f, 0.8f),   // 奶油白内描边：alpha 略降
+            CardFill = new Color(0.89f, 0.83f, 0.73f, 0.5f),         // 卡片：比面板更透，保留层次
+            PanelShadow = new Color(0.33f, 0.24f, 0.15f, 0.25f),     // 投影：深暖棕半透明略降
+            SearchFill = new Color(0.70f, 0.62f, 0.50f, 1f),         // 搜索框：保持不透明（用户要求）
+            ScrollbarBg = new Color(0.58f, 0.48f, 0.36f, 0.45f),     // 滚动条轨道：半透明
+            ScrollbarHandle = new Color(0.80f, 0.71f, 0.58f, 0.7f),  // 滚动条滑块：半透明
+        };
 
-        // 手绘勾线色：深咖啡棕墨水描边（所有元素统一的"勾线"色，层级靠粗细区分）。
-        private static readonly Color ColorInkOutline = new Color(0.36f, 0.25f, 0.15f, 1f);
-        // 内层浅色描边：暖奶油白（贴在墨水线内侧，制造"贴纸白边 + 双层勾线"的手绘层次）。
-        private static readonly Color ColorInnerHighlight = new Color(0.99f, 0.94f, 0.85f, 1f);
-        // 卡片底色：比面板略亮的奶油卡纸（卡片从面板上"浮"起来，建立层次）。
-        private static readonly Color ColorCardFill = new Color(0.89f, 0.83f, 0.73f, 1f);
-        // 面板投影：深暖棕半透明（面板下方"纸张投影"，制造浮起深度）。
-        private static readonly Color ColorPanelShadow = new Color(0.33f, 0.24f, 0.15f, 0.35f);
-        // 搜索框底色：略深于面板的暖卡其（下凹"输入槽"感）。
-        private static readonly Color ColorSearchFill = new Color(0.70f, 0.62f, 0.50f, 1f);
-        // 滚动条轨道底色：略深的暖棕（半透明，贴合面板）。
-        private static readonly Color ColorScrollbarBg = new Color(0.58f, 0.48f, 0.36f, 0.6f);
-        // 滚动条 handle：较浅的暖棕滑块（在轨道上更明显）。
-        private static readonly Color ColorScrollbarHandle = new Color(0.80f, 0.71f, 0.58f, 1f);
+        /// <summary>当前样式调色板：Plugin.UiStyle == "Transparent" 时走透明风，否则手绘风（默认）。</summary>
+        private static Palette CurrentPalette
+        {
+            get { return (Plugin.UiStyle == "Transparent") ? TransparentPalette : HandDrawnPalette; }
+        }
+
+        // 以下颜色 getter 属性指向当前调色板：所有 ColorIdle/ColorHover/... 引用点代码保持不变，自动走当前样式。
+        private static Color ColorIdle { get { return CurrentPalette.Idle; } }
+        private static Color ColorHover { get { return CurrentPalette.Hover; } }
+        private static Color ColorSelected { get { return CurrentPalette.Selected; } }
+        private static Color ColorTextIdle { get { return CurrentPalette.TextIdle; } }
+        private static Color ColorTextSelected { get { return CurrentPalette.TextSelected; } }
+        private static Color ColorHint { get { return CurrentPalette.Hint; } }
+        private static Color PanelBackground { get { return CurrentPalette.PanelBackground; } }
+        private static Color ColorInkOutline { get { return CurrentPalette.InkOutline; } }
+        private static Color ColorInnerHighlight { get { return CurrentPalette.InnerHighlight; } }
+        private static Color ColorCardFill { get { return CurrentPalette.CardFill; } }
+        private static Color ColorPanelShadow { get { return CurrentPalette.PanelShadow; } }
+        private static Color ColorSearchFill { get { return CurrentPalette.SearchFill; } }
+        private static Color ColorScrollbarBg { get { return CurrentPalette.ScrollbarBg; } }
+        private static Color ColorScrollbarHandle { get { return CurrentPalette.ScrollbarHandle; } }
 
         /// <summary>构建入口：接收 ItemSpawnerPlusWindow，创建完整 UI 树并挂载 ItemListView。</summary>
         public static void Setup(ItemSpawnerPlusWindow window)
