@@ -5,6 +5,8 @@
     <LangVersion>7.3</LangVersion>
     <AssemblyName>ItemSpawnerPremium</AssemblyName>
     <RootNamespace>ItemSpawnerEnhancement</RootNamespace>
+    <!-- 与 BepInPlugin 版本保持一致，便于从程序集属性排查线上版本 -->
+    <Version>2.1.0</Version>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <OutputPath>bin\</OutputPath>
@@ -22,10 +24,6 @@
     </Reference>
     <Reference Include="Newtonsoft.Json">
       <HintPath>$(GameDir)\PEAK_Data\Managed\Newtonsoft.Json.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Unity.InputSystem">
-      <HintPath>$(GameDir)\PEAK_Data\Managed\Unity.InputSystem.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Assembly-CSharp">
@@ -62,10 +60,6 @@
     </Reference>
     <Reference Include="UnityEngine.TextRenderingModule">
       <HintPath>$(GameDir)\PEAK_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.IMGUIModule">
-      <HintPath>$(GameDir)\PEAK_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.InputLegacyModule">

@@ -45,5 +45,15 @@ namespace ItemSpawnerEnhancement
                 _image.color = Color.white;
             }
         }
+
+        // 兜底：按下期间条目被 Rebuild 隐藏（SetActive(false)）时收不到 OnPointerUp/OnPointerExit，
+        // 此处复位避免颜色残留在压暗态并随对象池复用"传染"到其他物品。
+        private void OnDisable()
+        {
+            if (_image != null)
+            {
+                _image.color = Color.white;
+            }
+        }
     }
 }

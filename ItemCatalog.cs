@@ -36,6 +36,8 @@ namespace ItemSpawnerEnhancement
         /// <summary>物品 prefab 名 -> 全部标签（Flags）。主分类由 ItemCatalog.PrimaryOfTags 运行时推导。</summary>
         public static readonly Dictionary<string, ItemCategory> ItemTagMap = new Dictionary<string, ItemCategory>(System.StringComparer.OrdinalIgnoreCase)
         {
+            // 分类依据：游戏资源真值提取（item_truth.json）——itemTags / totalUses / 子树全部组件。
+            // 消耗品 = totalUses>0（有使用次数）或 Action_Consume（一次性用完消失），食物除外。
             { "Airplane Food", ItemCategory.Food },
             { "AK", ItemCategory.Props },
             { "AloeVera", ItemCategory.Consumables },
@@ -44,9 +46,9 @@ namespace ItemSpawnerEnhancement
             { "Amulet_InfiniteStamina", ItemCategory.Mystical },
             { "Amulet_SuperJump", ItemCategory.Mystical },
             { "AncientIdol", ItemCategory.Mystical },
-            { "Anti-Rope Spool", ItemCategory.Mystical | ItemCategory.Tools },
+            { "Anti-Rope Spool", ItemCategory.Consumables | ItemCategory.Mystical | ItemCategory.Tools },  // 绳索燃料耗尽后 Consume
             { "Antidote", ItemCategory.Consumables },
-            { "AntiZooka", ItemCategory.Mystical | ItemCategory.Tools },
+            { "AntiZooka", ItemCategory.Consumables | ItemCategory.Mystical | ItemCategory.Tools },  // 3 次
             { "Apple Berry Green", ItemCategory.Food },
             { "Apple Berry Red", ItemCategory.Food },
             { "Apple Berry Weird", ItemCategory.Food },
@@ -67,59 +69,29 @@ namespace ItemSpawnerEnhancement
             { "Berrynana Yellow", ItemCategory.Food },
             { "BingBong", ItemCategory.Equipment | ItemCategory.Mystical },
             { "Binoculars", ItemCategory.Equipment },
-            { "BookOfBones", ItemCategory.Mystical },
+            { "BookOfBones", ItemCategory.Consumables | ItemCategory.Mystical },  // 1 次
             { "BounceShroom", ItemCategory.Tools },
             { "Bugfix", ItemCategory.Food },
             { "Bugle", ItemCategory.Equipment },
             { "Bugle_Magic", ItemCategory.Equipment | ItemCategory.Mystical },
-            { "Bugle_Scoutmaster Variant", ItemCategory.Equipment | ItemCategory.Mystical },
-            { "C_Bishop B", ItemCategory.Props },
-            { "C_Bishop W", ItemCategory.Props },
-            { "C_Bishop_f", ItemCategory.Props },
-            { "C_Bishop_f Variant", ItemCategory.Props },
-            { "C_Bishop_m", ItemCategory.Props },
-            { "C_Bishop_m Variant", ItemCategory.Props },
-            { "C_King", ItemCategory.Props },
-            { "C_King B", ItemCategory.Props },
-            { "C_King Variant", ItemCategory.Props },
-            { "C_King W", ItemCategory.Props },
-            { "C_Knight", ItemCategory.Props },
-            { "C_Knight B", ItemCategory.Props },
-            { "C_Knight Variant", ItemCategory.Props },
-            { "C_Knight W", ItemCategory.Props },
-            { "C_Pawn B", ItemCategory.Props },
-            { "C_Pawn W", ItemCategory.Props },
-            { "C_Pawn_f", ItemCategory.Props },
-            { "C_Pawn_f Variant", ItemCategory.Props },
-            { "C_Pawn_m", ItemCategory.Props },
-            { "C_Pawn_m Variant", ItemCategory.Props },
-            { "C_Queen", ItemCategory.Props },
-            { "C_Queen B", ItemCategory.Props },
-            { "C_Queen Variant", ItemCategory.Props },
-            { "C_Queen W", ItemCategory.Props },
-            { "C_Rook B", ItemCategory.Props },
-            { "C_Rook W", ItemCategory.Props },
-            { "C_Rook_f", ItemCategory.Props },
-            { "C_Rook_f Variant", ItemCategory.Props },
-            { "C_Rook_m", ItemCategory.Props },
-            { "C_Rook_m Variant", ItemCategory.Props },
+            { "Bugle_Scoutmaster Variant", ItemCategory.Consumables | ItemCategory.Mystical },  // 1 次
             { "CactusBall", ItemCategory.Props },
-            { "Candle", ItemCategory.Tools },
-            { "ChainShooter", ItemCategory.Tools },
-            { "Cheat Compass", ItemCategory.Mystical },
-            { "Cheat Compass 1", ItemCategory.Mystical },
-            { "ClimbingChalk", ItemCategory.Consumables },
+            { "Candle", ItemCategory.Consumables | ItemCategory.Tools },        // 光源：燃料耗尽
+            { "ChainShooter", ItemCategory.Consumables | ItemCategory.Tools },  // 1 次
+            { "Cheat Compass", ItemCategory.Consumables | ItemCategory.Mystical },     // 1 次
+            { "Cheat Compass 1", ItemCategory.Consumables | ItemCategory.Mystical },   // 1 次
+            { "ClimbingChalk", ItemCategory.Consumables | ItemCategory.Mystical },     // 1 次
             { "ClimbingSpike", ItemCategory.Tools },
             { "CloudFungus", ItemCategory.Tools },
             { "Clusterberry Black", ItemCategory.Food },
             { "Clusterberry Red", ItemCategory.Food },
             { "Clusterberry Yellow", ItemCategory.Food },
             { "Compass", ItemCategory.Equipment },
-            { "Cure-All", ItemCategory.Consumables | ItemCategory.Mystical },
-            { "Cure-Some", ItemCategory.Consumables },
+            { "Cure-All", ItemCategory.Consumables | ItemCategory.Mystical },   // 3 次
+            { "Cure-Some", ItemCategory.Consumables | ItemCategory.Mystical },
             { "Cursed Skull", ItemCategory.Mystical },
-            { "Darkberry", ItemCategory.Food },
-            { "Dynamite", ItemCategory.Consumables },
+            { "Darkberry", ItemCategory.Food | ItemCategory.Mystical },
+            { "Dynamite", ItemCategory.Consumables },                           // 1 次
             { "EarlyWorm", ItemCategory.Food },
             { "Egg", ItemCategory.Food },
             { "EggRaven", ItemCategory.Food },
@@ -129,8 +101,8 @@ namespace ItemSpawnerEnhancement
             { "Fannypack", ItemCategory.Equipment },
             { "FireWood", ItemCategory.Props },
             { "FirstAidKit", ItemCategory.Consumables },
-            { "Flag_Plantable_Checkpoint", ItemCategory.Tools },
-            { "Flare", ItemCategory.Consumables },
+            { "Flag_Plantable_Checkpoint", ItemCategory.Consumables | ItemCategory.Tools },
+            { "Flare", ItemCategory.Consumables },                              // 1 次
             { "FortifiedMilk", ItemCategory.Food },
             { "Frisbee", ItemCategory.Props },
             { "Frog", ItemCategory.Food },
@@ -140,30 +112,24 @@ namespace ItemSpawnerEnhancement
             { "Glizzy_CattailVariant", ItemCategory.Food },
             { "Granola Bar", ItemCategory.Food },
             { "Guidebook", ItemCategory.Equipment },
-            { "GuidebookPage", ItemCategory.Props },
-            { "GuidebookPage_0_Intro", ItemCategory.Props },
-            { "GuidebookPage_1_Mushrooms", ItemCategory.Props },
-            { "GuidebookPage_2_Campfire", ItemCategory.Props },
-            { "GuidebookPage_3_Revival", ItemCategory.Props },
-            { "GuidebookPageScroll Variant", ItemCategory.Props },
-            { "HealingDart Variant", ItemCategory.Tools },
-            { "HealingPuffShroom", ItemCategory.Consumables },
+            { "HealingDart Variant", ItemCategory.Consumables | ItemCategory.Tools },  // 1 次
+            { "HealingPuffShroom", ItemCategory.Consumables | ItemCategory.Tools },  // 砸地碎裂放出绿烟清除负面状态（ShelfShroom 族，投出即自毁）
             { "Heat Pack", ItemCategory.Consumables },
-            { "Item_Coconut", ItemCategory.Food },
+            { "Item_Coconut", ItemCategory.Food | ItemCategory.Props },  // 整颗需砸开（Breakable+Bonkable），本身零交互投掷物
             { "Item_Coconut_half", ItemCategory.Food },
             { "Item_Honeycomb", ItemCategory.Food },
             { "Jetpack", ItemCategory.Equipment },
             { "Kingberry Green", ItemCategory.Food },
             { "Kingberry Purple", ItemCategory.Food },
             { "Kingberry Yellow", ItemCategory.Food },
-            { "Lantern", ItemCategory.Tools },
-            { "Lantern_Faerie", ItemCategory.Consumables | ItemCategory.Mystical },
+            { "Lantern", ItemCategory.Consumables | ItemCategory.Tools },       // 光源：燃料耗尽
+            { "Lantern_Faerie", ItemCategory.Consumables | ItemCategory.Mystical | ItemCategory.Tools },
             { "Lollipop", ItemCategory.Food },
             { "Lollipop_Evil", ItemCategory.Food | ItemCategory.Mystical },
-            { "MagicBean", ItemCategory.Mystical | ItemCategory.Tools },
-            { "Mandrake", ItemCategory.Food | ItemCategory.Mystical },
+            { "MagicBean", ItemCategory.Consumables | ItemCategory.Mystical | ItemCategory.Tools },  // 种下生成藤蔓后本体销毁
+            { "Mandrake", ItemCategory.Food },
             { "Marshmallow", ItemCategory.Food },
-            { "Matchbook", ItemCategory.Consumables },
+            { "Matchbook", ItemCategory.Equipment },   // 实为查看叠加层（同望远镜），非光源
             { "MedicinalRoot", ItemCategory.Food },
             { "Megaphone", ItemCategory.Equipment },
             { "Mushroom Chubby", ItemCategory.Food },
@@ -178,32 +144,32 @@ namespace ItemSpawnerEnhancement
             { "NestEgg", ItemCategory.Food },
             { "NestEgg_Raven", ItemCategory.Food },
             { "Painkillers", ItemCategory.Consumables },
-            { "PandorasBox", ItemCategory.Food | ItemCategory.Mystical },
-            { "Parachute", ItemCategory.Consumables },
+            { "PandorasBox", ItemCategory.Consumables | ItemCategory.Mystical },  // 3 次
+            { "Parachute", ItemCategory.Consumables | ItemCategory.Equipment },  // 坠落自动触发，用后 Consume
             { "Parasol", ItemCategory.Equipment },
             { "Parasol_Roots Variant", ItemCategory.Equipment },
             { "Passport", ItemCategory.Equipment },
             { "Pepper Berry", ItemCategory.Food },
             { "Pirate Compass", ItemCategory.Equipment },
-            { "PortableStovetopItem", ItemCategory.Tools },
+            { "PortableStovetopItem", ItemCategory.Consumables | ItemCategory.Tools },
             { "Prickleberry_Gold", ItemCategory.Food },
             { "Prickleberry_Red", ItemCategory.Food },
-            { "RescueHook", ItemCategory.Tools },
-            { "RescueHook_Infinite", ItemCategory.Tools },
+            { "RescueHook", ItemCategory.Consumables | ItemCategory.Tools },    // 3 次
+            { "RescueHook_Infinite", ItemCategory.Tools },                      // 无限次
             { "RitualDagger", ItemCategory.Mystical },
-            { "Rocketpack", ItemCategory.Equipment },
-            { "RopeShooter", ItemCategory.Tools },
-            { "RopeShooterAnti", ItemCategory.Mystical | ItemCategory.Tools },
-            { "RopeSpool", ItemCategory.Tools },
+            { "Rocketpack", ItemCategory.Consumables | ItemCategory.Equipment },  // 占背包位，燃尽爆炸自毁
+            { "RopeShooter", ItemCategory.Consumables | ItemCategory.Tools },   // 1 次
+            { "RopeShooterAnti", ItemCategory.Consumables | ItemCategory.Mystical | ItemCategory.Tools },
+            { "RopeSpool", ItemCategory.Consumables | ItemCategory.Tools },  // 绳索燃料耗尽后 Consume
             { "Scorpion", ItemCategory.Food },
-            { "ScoutCannonItem", ItemCategory.Tools },
-            { "ScoutCookies", ItemCategory.Food },
-            { "ScoutCookies_Vanilla", ItemCategory.Food },
-            { "ScoutEffigy", ItemCategory.Mystical },
+            { "ScoutCannonItem", ItemCategory.Consumables | ItemCategory.Tools },
+            { "ScoutCookies", ItemCategory.Consumables | ItemCategory.Food },        // 4 次用量（Action_ReduceUses），唯一带次数计数的食物
+            { "ScoutCookies_Vanilla", ItemCategory.Consumables | ItemCategory.Food }, // 同上
+            { "ScoutEffigy", ItemCategory.Consumables | ItemCategory.Mystical },
             { "ScoutmasterSoul", ItemCategory.Mystical },
             { "ScoutsHonor", ItemCategory.Mystical },
             { "ShelfShroom", ItemCategory.Tools },
-            { "Shell Big", ItemCategory.Food },
+            { "Shell Big", ItemCategory.Props },
             { "Shroomberry_Blue", ItemCategory.Food },
             { "Shroomberry_Green", ItemCategory.Food },
             { "Shroomberry_Purple", ItemCategory.Food },
@@ -214,19 +180,24 @@ namespace ItemSpawnerEnhancement
             { "Sports Drink", ItemCategory.Food },
             { "Stone", ItemCategory.Props },
             { "Strange Gem", ItemCategory.Mystical },
-            { "Sunscreen", ItemCategory.Consumables },
-            { "Torch", ItemCategory.Tools },
+            { "Sunscreen", ItemCategory.Consumables },                          // 3 次
+            { "Torch", ItemCategory.Consumables | ItemCategory.Tools },         // 光源：燃料耗尽
             { "TrailMix", ItemCategory.Food },
-            { "Wand of Wind", ItemCategory.Mystical },
-            { "Warp Compass", ItemCategory.Mystical },
-            { "WarpFungus", ItemCategory.Mystical },
+            { "Wand of Wind", ItemCategory.Consumables | ItemCategory.Mystical },  // 3 次
+            { "Warp Compass", ItemCategory.Consumables | ItemCategory.Mystical },  // 3 次
+            { "WarpFungus", ItemCategory.Mystical | ItemCategory.Tools },
             { "Warpsketball", ItemCategory.Props },
             { "Winterberry Orange", ItemCategory.Food },
             { "Winterberry Yellow", ItemCategory.Food },
             { "Wonderberry", ItemCategory.Food | ItemCategory.Mystical },
+            { "Yuzu Berry", ItemCategory.Food },
         };
 
-        /// <summary>补充本地化 key 映射：prefab 名 -> 本地化 key（UIData.itemName 与游戏表不对应时使用）。</summary>
+        /// <summary>
+        /// 补充本地化 key 映射：prefab 名 -> 本地化 key（UIData.itemName 与游戏表不对应时使用）。
+        /// 说明：当前游戏版本下这些 key 与 "NAME_" + UIData.itemName 的默认解析结果一致，
+        /// 保留作为版本兼容兜底（若未来 UIData.itemName 改动，此表可锁定正确 key）。
+        /// </summary>
         public static readonly Dictionary<string, string> ExtraNameKeys = new Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase)
         {
             { "Bugfix", "NAME_TICK" },
@@ -260,6 +231,13 @@ namespace ItemSpawnerEnhancement
         {
             "BaseConstructable Variant",
             "BaseObject",
+            "Berrynana UNUSED",
+            "BingBong_Prop Variant",
+            "Binoculars_Prop",
+            "Bugle_Prop Variant",
+            "Clusterberry_UNUSED",
+            "Lollipop_Prop",
+            "Mandrake_Hidden",
             "Portable Speaker",
             "Propeller",
             "Skull",

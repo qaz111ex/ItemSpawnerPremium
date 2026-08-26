@@ -73,6 +73,12 @@ namespace ItemSpawnerEnhancement
                     Plugin.Log.LogWarning("ItemSpawnerPremium: 加载本地化资源失败 " + resourceName + ": " + ex.Message);
                 }
             }
+            if (_languages.Count == 0)
+            {
+                // 全部语言都没加载上（内嵌资源缺失/命名变更）：UI 会退化为显示原始 key（如 "catAll"），
+                // 这里明确报错便于诊断，而不是让玩家看到一堆英文 key。
+                Plugin.Log.LogError("ItemSpawnerPremium: 未加载到任何本地化资源，界面文字将显示为原始 key");
+            }
         }
 
         public string Get(string languageCode, string key)

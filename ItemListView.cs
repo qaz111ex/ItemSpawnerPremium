@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using Photon.Pun;
 using TinyPinyin;
 using TMPro;
 using UnityEngine;
@@ -48,6 +47,7 @@ namespace ItemSpawnerEnhancement
         private TMP_FontAsset _fontCjk;
         private bool _subscribedInput;
         private bool _subscribedLanguage;
+        private volatile bool _refreshRequested;   // 物品隐藏开关变化请求（可能由非主线程的 Config 回调置位）
 
         public void Init(Transform content, Transform template, TMP_InputField searchInput)
         {
@@ -78,32 +78,66 @@ namespace ItemSpawnerEnhancement
         }
 
         /// <summary>
-        /// 物品隐藏开关切换后重建目录：销毁旧条目 clone（保留模板），重新 BuildCatalog + 增量构建。
+        /// 请求重建目录（物品隐藏开关变化时调用）。只置标志，由 <see cref="Update"/> 在主线程消费：
+        /// BepInEx 的 SettingChanged 在调用方线程同步派发，直接做 Destroy/StartCoroutine 会在非主线程抛异常；
+        /// 且构建中（Building）时立即处理会被丢弃，置标志可保证稍后补做而非静默丢失。
         /// </summary>
-        public void RefreshCatalog()
+        public void RequestRefresh()
         {
-            if (!Initialized || Building)
+            _refreshRequested = true;
+        }
+
+        private void Update()
+        {
+            if (!_refreshRequested)
             {
                 return;
             }
-            // 先隐藏再销毁旧条目 clone，避免一帧内新旧条目同时可见
+            if (!Initialized || Building)
+            {
+                return; // 构建中/未就绪：保留请求，下一帧再试
+            }
+            _refreshRequested = false;
+            RefreshCatalog();
+        }
+
+        private void RefreshCatalog()
+        {
+            // 旧条目先脱离 _content 再销毁：Destroy 延迟到帧末，若仍挂在 _content 下，
+            // 同帧新建的条目会与之共存，污染 Rebuild 的 SetSiblingIndex 与 GridLayoutGroup 布局。
             for (int i = _content.childCount - 1; i >= 0; i--)
             {
                 Transform child = _content.GetChild(i);
                 if (child != _template)
                 {
                     child.gameObject.SetActive(false);
+                    child.SetParent(null, false);
                     Destroy(child.gameObject);
                 }
             }
-            BuildCatalog();
+            for (int i = 0; i < _all.Count; i++)
+            {
+                _all[i].go = null;  // 旧 clone 已销毁，断开引用避免 Rebuild 访问
+            }
+            try
+            {
+                BuildCatalog();
+            }
+            catch (Exception ex)
+            {
+                // 目录重建失败时必须复位 Initialized：否则 UiEnhancer.Setup 的守卫会因
+                // Initialized==true 永久跳过，F5 兜底失效，窗口永久空列表直到重启。
+                Initialized = false;
+                Plugin.Log.LogError("ItemSpawnerPremium: 重建目录失败，已复位以便下次 F5 重试: " + ex);
+                return;
+            }
             Building = true;
             StartCoroutine(BuildAllEntriesIncremental());
         }
 
         private void OnDestroy()
         {
-            LocalizedText.OnLangugageChanged -= OnLanguageChanged;
+            Stop();  // 统一走 Stop()：退订语言事件与搜索监听，避免两处重复逻辑漂移
         }
 
         /// <summary>停止监听（组件复用前调用，保证幂等）。</summary>
@@ -216,7 +250,35 @@ namespace ItemSpawnerEnhancement
                 }
             }
             _all.Sort(CompareEntries);
-            Plugin.Favorites.Prune(_all.Select(e => e.prefabName));
+            // 收藏清理只能在"目录代表全集"时进行：HideUnused=true 时 _all 已剔除隐藏物品，
+            // 若据此 Prune 会把隐藏物品的收藏永久删除并立即写盘（SaveOnConfigSet），造成用户数据丢失。
+            // 因此传入未经显示过滤的完整 prefab 集合，与显示过滤彻底解耦。
+            Plugin.Favorites.Prune(EnumerateAllPrefabNames(db));
+        }
+
+        /// <summary>枚举数据库中所有物品的 prefab 名（不受隐藏开关影响），供收藏脏数据清理使用。</summary>
+        private static IEnumerable<string> EnumerateAllPrefabNames(ItemDatabase db)
+        {
+            foreach (Item item in db.Objects)
+            {
+                if (item == null)
+                {
+                    continue;
+                }
+                string name = null;
+                try
+                {
+                    name = item.gameObject.name;
+                }
+                catch
+                {
+                    continue;
+                }
+                if (!string.IsNullOrEmpty(name))
+                {
+                    yield return name;
+                }
+            }
         }
 
         private static string ResolveDisplayName(Item item, string prefab)
@@ -276,7 +338,7 @@ namespace ItemSpawnerEnhancement
 
         /// <summary>
         /// 解析物品的多标签分类与主分类。
-        /// 1) 静态表（基于游戏交互提示/组件/显示名设计的 148 个已知物品）
+        /// 1) 静态表（基于游戏资源真值提取的已知物品，见 ItemCatalog.ItemTagMap）
         /// 2) 运行时组件/ItemTags 兜底（兼容模组新增物品）
         /// 3) prefab 名特征
         /// </summary>
@@ -311,9 +373,18 @@ namespace ItemSpawnerEnhancement
                 {
                     tags |= ItemCategory.Food;
                 }
-                if (item.GetComponent<ItemCooking>() != null || item.GetComponent<Action_Consume>() != null)
+                // 食物兜底只认"恢复饥饿"这一确定证据：ItemCooking/Action_Consume 在大量非食物道具上
+                // 也存在（望远镜、指南书、绷带、炸药、绳索、防晒、篮球、雪球等 41 项），
+                // 用它们判定食物会把模组新增的普通道具误分类为食物。
+                if (item.GetComponent<Action_RestoreHunger>() != null)
                 {
                     tags |= ItemCategory.Food;
+                }
+                // 有使用次数或一次性消耗 → 消耗品（食物除外，食物走上面的分支）
+                if ((tags & ItemCategory.Food) == 0
+                    && (item.totalUses > 0 || item.GetComponent<Action_Consume>() != null))
+                {
+                    tags |= ItemCategory.Consumables;
                 }
             }
 
@@ -333,7 +404,7 @@ namespace ItemSpawnerEnhancement
                 tags |= ItemCategory.Tools;
             }
 
-            // 兜底：未知物品归入"场景"
+            // 兜底：未知物品归入"杂项"
             if (tags == ItemCategory.None)
             {
                 tags = ItemCategory.Props;
@@ -348,7 +419,14 @@ namespace ItemSpawnerEnhancement
             {
                 return c;
             }
-            return string.Compare(a.displayName, b.displayName, StringComparison.OrdinalIgnoreCase);
+            int c2 = string.Compare(a.displayName, b.displayName, StringComparison.OrdinalIgnoreCase);
+            if (c2 != 0)
+            {
+                return c2;
+            }
+            // prefab 名做最终 tiebreaker：使比较器成为全序，避免同名条目（如两种救援抓钩/煎蛋）
+            // 在 List.Sort（不稳定排序）后相对顺序抖动，导致语言切换时网格位置互换。
+            return string.Compare(a.prefabName, b.prefabName, StringComparison.Ordinal);
         }
 
         private void RefreshFonts()
@@ -474,10 +552,11 @@ namespace ItemSpawnerEnhancement
             TMP_FontAsset font = NeedsCjkFont() ? _fontCjk : _fontLatin;
             string query = (_query == null) ? "" : _query.Trim().ToLowerInvariant();
             string queryNoSpace = StripNonAlnum(query); // 与 pinyin/pinyinInitials 同规则：去掉所有非字母数字
+            bool chinese = IsChineseLanguage();          // 提到循环外算一次，避免每条目重复读静态字段
 
             // 智能排名：计算每个条目分数（0 表示不匹配），可见条目按分数降序（LINQ 稳定排序，同分保持原顺序）
             var scored = _all
-                .Select(entry => new { Entry = entry, S = Score(entry, query, queryNoSpace) })
+                .Select(entry => new { Entry = entry, S = Score(entry, query, queryNoSpace, chinese) })
                 .ToList();
             var visible = scored.Where(x => x.S > 0).OrderByDescending(x => x.S).ToList();
 
@@ -524,6 +603,14 @@ namespace ItemSpawnerEnhancement
                 {
                     favTrans.gameObject.SetActive(Plugin.Favorites.IsFavorite(entry.prefabName));
                 }
+
+                // 复位卡片按压反馈色：条目在按下期间被 Rebuild 隐藏时 PressFeedback 收不到
+                // OnPointerUp/Exit，颜色会残留在压暗态并随对象池复用"传染"到其他物品。
+                Image cardImg = go.GetComponent<Image>();
+                if (cardImg != null)
+                {
+                    cardImg.color = Color.white;
+                }
             }
         }
 
@@ -532,7 +619,7 @@ namespace ItemSpawnerEnhancement
         /// 优先级：当前语言显示名 &gt; 拼音（仅中文）&gt; 英文名 &gt; prefab 名；
         /// 每档内再按「精确 == / 前缀 / 包含」细分。
         /// </summary>
-        private int Score(Entry entry, string query, string queryNoSpace)
+        private int Score(Entry entry, string query, string queryNoSpace, bool chinese)
         {
             // query 已 trim + ToLowerInvariant；queryNoSpace 是去掉所有非字母数字后的 query
             if (!ItemCatalog.IsInMajor(entry.tags, _major)) { return 0; }
@@ -552,7 +639,7 @@ namespace ItemSpawnerEnhancement
             }
 
             // 2. 拼音（仅中文语言下参与；前缀匹配优先于英文子串，保证中文玩家打拼音时中文结果靠前）
-            if (IsChineseLanguage())
+            if (chinese)
             {
                 if (entry.pinyin != null && queryNoSpace.Length > 0)
                 {
@@ -665,15 +752,22 @@ namespace ItemSpawnerEnhancement
             return sb.ToString();
         }
 
-        /// <summary>当前语言是否需要 CJK 字体（简/繁/日/韩），用于字体选择。</summary>
+        /// <summary>
+        /// 当前语言是否需要游戏主字体（而非拉丁装饰字体）。
+        /// 除简/繁/日/韩（CJK 字形）外，俄语/乌克兰语（西里尔字母）也必须用主字体：
+        /// DarumaDropOne 是日系手绘装饰字体，其拉丁子集不含西里尔字形，直接使用会渲染成方块。
+        /// </summary>
         public static bool NeedsCjkFont()
         {
-            // 简体/繁体/日文/韩文均需 CJK 字体（游戏 SetLanguage 对这些语言切换中文字体 fallback）
+            // 简体/繁体/日文/韩文需 CJK 字形（游戏 SetLanguage 对中文切换 fallback）；
+            // 俄语/乌克兰语需西里尔字形，两者都只有游戏主字体（含 fallback 链）能覆盖。
             LocalizedText.Language language = LocalizedText.CURRENT_LANGUAGE;
             return language == LocalizedText.Language.SimplifiedChinese
                 || language == LocalizedText.Language.TraditionalChinese
                 || language == LocalizedText.Language.Japanese
-                || language == LocalizedText.Language.Korean;
+                || language == LocalizedText.Language.Korean
+                || language == LocalizedText.Language.Russian
+                || language == LocalizedText.Language.Ukrainian;
         }
 
         /// <summary>当前语言是否为中文（仅简/繁），用于中文文案分支（按钮标签与 ExtraCustomNames 自定义名）。</summary>

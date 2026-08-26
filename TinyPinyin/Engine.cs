@@ -91,7 +91,14 @@ namespace TinyPinyin
                 }
                 else
                 {
-                    return PinyinData.PINYIN_TABLE[GetPinyinCode(c)];
+                    // 防御性上界检查：解码索引理论上恒 < PINYIN_TABLE.Length（实测最大 407 / 表长 408，零余量），
+                    // 若未来更新数据表引入更大索引，这里避免直接 IndexOutOfRangeException。
+                    int code = GetPinyinCode(c);
+                    if (code < 0 || code >= PinyinData.PINYIN_TABLE.Length)
+                    {
+                        return c.ToString();
+                    }
+                    return PinyinData.PINYIN_TABLE[code];
                 }
             }
             else

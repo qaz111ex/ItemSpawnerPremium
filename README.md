@@ -8,9 +8,9 @@ A standalone client-side item spawner for PEAK. Press **F5** to open the browser
 
 - **Localized item names** in all 15 game languages (resolved via `LocalizedText`).
 - **Smart search + Pinyin** (full spelling and initials, e.g. `regouchang` / `rgc` finds 热狗肠).
-- **Multi-tag categories**: All / Tools / Food / Mystical / Equipment / Consumables / Props.
+- **Multi-tag categories**: All / Tools / Food / Mystical / Equipment / Consumables / Misc.
 - **Favorites**: right-click to toggle, heart marker, config persistence, favorites filter.
-- **Hide-unused toggle** (default on): hides chess pieces, torn guidebook pages, and `_Prop`/`_TEMP`/`_UNUSED`/`_Hidden` prefabs.
+- **Hide-unused toggle** (default on): hides chess pieces, torn guidebook pages, `_Prop`/`_TEMP`/`_UNUSED`/`_Hidden` prefabs, and a short list of template/placeholder prefabs. Favorites are preserved when toggling.
 - **Two UI styles**: HandDrawn (warm kraft paper, default) / Transparent.
 - **Single DLL**: TinyPinyin and all 15 localization JSONs are bundled; only BepInEx is required.
 

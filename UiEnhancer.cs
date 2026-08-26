@@ -19,6 +19,10 @@ namespace ItemSpawnerEnhancement
     {
         private static readonly List<Button> _categoryButtons = new List<Button>();
         private static readonly List<TextMeshProUGUI> _categoryButtonLabels = new List<TextMeshProUGUI>();
+        // 与 _categoryButtons 平行：记录每个按钮对应的分类枚举值。
+        // 不用「List 索引强转 MajorCategory」，否则一旦枚举插入新值或指定非连续数值，
+        // 按钮高亮与悬停判定会整体错位。
+        private static readonly List<MajorCategory> _categoryButtonMajors = new List<MajorCategory>();
         private static ItemListView _view;
         private static Button _favoriteButton;
         private static TextMeshProUGUI _favoriteButtonLabel;
@@ -234,8 +238,8 @@ namespace ItemSpawnerEnhancement
             GameObject shadowGo = new GameObject("PanelShadow", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
             RectTransform shadowRt = (RectTransform)shadowGo.transform;
             shadowRt.SetParent(root, false);
-            shadowRt.            anchorMin = new Vector2(0.1834f, 0.1068f);
-            shadowRt.            anchorMax = new Vector2(0.8188f, 0.8955f);
+            shadowRt.anchorMin = new Vector2(0.1834f, 0.1068f);
+            shadowRt.anchorMax = new Vector2(0.8188f, 0.8955f);
             shadowRt.offsetMin = new Vector2(-8f, -16f);   // 比面板略大一圈，向下偏移模拟顶部光源
             shadowRt.offsetMax = new Vector2(8f, 0f);
             Image shadowImg = shadowGo.GetComponent<Image>();
@@ -245,8 +249,8 @@ namespace ItemSpawnerEnhancement
             GameObject go = new GameObject("Panel", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
             RectTransform rt = (RectTransform)go.transform;
             rt.SetParent(root, false);
-            rt.            anchorMin = new Vector2(0.1834f, 0.1068f);
-            rt.            anchorMax = new Vector2(0.8188f, 0.8955f);
+            rt.anchorMin = new Vector2(0.1834f, 0.1068f);
+            rt.anchorMax = new Vector2(0.8188f, 0.8955f);
             rt.offsetMin = Vector2.zero;
             rt.offsetMax = Vector2.zero;
 
@@ -299,7 +303,9 @@ namespace ItemSpawnerEnhancement
             placeholder.raycastTarget = false;
 
             // 输入文本
-            GameObject textGo = new GameObject("Text", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+            // 命名为 SearchText 而非通用的 "Text"：OnStyleChanged 按 gameObject 名重设文字颜色，
+            // 通用名容易与其它来源的同名组件冲突。
+            GameObject textGo = new GameObject("SearchText", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
             RectTransform textRt = (RectTransform)textGo.transform;
             textRt.SetParent(areaRt, false);
             textRt.anchorMin = Vector2.zero;
@@ -465,8 +471,6 @@ namespace ItemSpawnerEnhancement
             nameRt.anchorMin = new Vector2(0f, 0f);
             nameRt.anchorMax = new Vector2(1f, 0f);
             nameRt.pivot = new Vector2(0.5f, 0f);
-            nameRt.offsetMin = Vector2.zero;
-            nameRt.offsetMax = Vector2.zero;
             nameRt.anchoredPosition = new Vector2(0f, 4f);
             nameRt.sizeDelta = new Vector2(-10f, 36f);
             TextMeshProUGUI name = nameGo.GetComponent<TextMeshProUGUI>();
@@ -586,8 +590,11 @@ namespace ItemSpawnerEnhancement
             GetCardSprite(ref _btnIdleSprite, "ItemSpawnerPremium BtnIdle", 10f, 1.5f, ColorInkOutline, ColorInnerHighlight, ColorIdle);
             GetCardSprite(ref _btnHoverSprite, "ItemSpawnerPremium BtnHover", 10f, 1.5f, ColorInkOutline, ColorInnerHighlight, ColorHover);
             GetCardSprite(ref _btnSelectedSprite, "ItemSpawnerPremium BtnSelected", 10f, 1.5f, ColorInkOutline, ColorInnerHighlight, ColorSelected);
-            GetCardSprite(ref _scrollbarBgSprite, "ItemSpawnerPremium ScrollBg", 6f, 1f, ColorInkOutline, ColorInnerHighlight, ColorScrollbarBg);
-            GetCardSprite(ref _scrollbarHandleSprite, "ItemSpawnerPremium ScrollHandle", 6f, 1f, ColorInkOutline, ColorInnerHighlight, ColorScrollbarHandle);
+            // 滚动条（轨道 14px 宽、滑块约 6px 宽）：不烘描边。
+            // 64×64 纹理以 Simple 拉伸到细长条时，1px 的描边会被横向压到 0.2px 以下糊成竖线；
+            // 而 9-slice border（≥8）又大于控件宽度导致 Sliced 退化。故只保留圆角纯色填充。
+            GetCardSprite(ref _scrollbarBgSprite, "ItemSpawnerPremium ScrollBg", 6f, 0f, Color.clear, Color.clear, ColorScrollbarBg);
+            GetCardSprite(ref _scrollbarHandleSprite, "ItemSpawnerPremium ScrollHandle", 6f, 0f, Color.clear, Color.clear, ColorScrollbarHandle);
             GetCardSprite(ref _shadowSprite, "ItemSpawnerPremium Shadow", 16f, 0f, Color.clear, Color.clear, ColorPanelShadow);
         }
 
@@ -627,7 +634,31 @@ namespace ItemSpawnerEnhancement
         /// <summary>样式热重载：清空 Sprite 缓存重新烘焙，并按 sprite 名遍历窗口所有 Image 重新套用。</summary>
         public static void OnStyleChanged()
         {
-            // 1. 清空缓存（EnsureSprites 惰性烘焙，字段为 null 会按新样式重新生成）
+            bool hasWindow = Plugin.Window != null && Plugin.Window.canvasObject != null;
+
+            // 1. 先快照「Image → 旧 sprite 名」。必须在销毁旧 Sprite 之前采集：
+            //    虽然 Destroy 延迟到帧末、当帧仍可读 sprite.name，但依赖该延迟语义很脆弱；
+            //    先快照后销毁可彻底消除"读取已销毁 Sprite"的时序风险。
+            List<Image> spriteTargets = null;
+            List<string> spriteNames = null;
+            if (hasWindow)
+            {
+                Image[] images = Plugin.Window.canvasObject.GetComponentsInChildren<Image>(true);
+                spriteTargets = new List<Image>(images.Length);
+                spriteNames = new List<string>(images.Length);
+                for (int i = 0; i < images.Length; i++)
+                {
+                    Image img = images[i];
+                    if (img == null || img.sprite == null)
+                    {
+                        continue;
+                    }
+                    spriteTargets.Add(img);
+                    spriteNames.Add(img.sprite.name);
+                }
+            }
+
+            // 2. 清空缓存（EnsureSprites 惰性烘焙，字段为 null 会按新样式重新生成）
             if (_heartTexture != null)
             {
                 UnityEngine.Object.Destroy(_heartTexture);
@@ -644,23 +675,24 @@ namespace ItemSpawnerEnhancement
             DestroySprite(ref _shadowSprite);
             EnsureSprites();
 
-            // 2. 遍历窗口所有 Image，按旧 sprite.name 套用新 Sprite（保持按钮当前三态/各元素角色不变）
-            if (Plugin.Window == null || Plugin.Window.canvasObject == null)
+            if (!hasWindow)
             {
                 return; // 窗口尚未创建，无需套用（下次 Setup 会用新 Sprite）
             }
-            Image[] images = Plugin.Window.canvasObject.GetComponentsInChildren<Image>(true);
-            for (int i = 0; i < images.Length; i++)
+
+            // 3. 按快照的旧 sprite 名套用新 Sprite（保持按钮当前三态/各元素角色不变）
+            for (int i = 0; i < spriteTargets.Count; i++)
             {
-                Image img = images[i];
-                if (img == null || img.sprite == null)
+                Image img = spriteTargets[i];
+                if (img == null)
                 {
                     continue;
                 }
-                Sprite s = FindSpriteByName(img.sprite.name);
+                Sprite s = FindSpriteByName(spriteNames[i]);
                 if (s != null)
                 {
-                    ApplySprite(img, s);
+                    // 滚动条用 Simple（9-slice border 大于控件尺寸会退化），其余保持 Sliced
+                    ApplySprite(img, s, IsScrollbarSpriteName(spriteNames[i]) ? Image.Type.Simple : Image.Type.Sliced);
                 }
             }
 
@@ -693,7 +725,7 @@ namespace ItemSpawnerEnhancement
                     continue;
                 }
                 string goName = t.gameObject.name;
-                if (goName == "ItemName" || goName == "Text")
+                if (goName == "ItemName" || goName == "SearchText")
                 {
                     t.color = ColorTextIdle;
                 }
@@ -725,6 +757,12 @@ namespace ItemSpawnerEnhancement
                 case "ItemSpawnerPremium Shadow": return _shadowSprite;
                 default: return null;
             }
+        }
+
+        /// <summary>滚动条 Sprite 需用 Image.Type.Simple（9-slice border 大于控件宽度会退化）。</summary>
+        private static bool IsScrollbarSpriteName(string name)
+        {
+            return name == "ItemSpawnerPremium ScrollBg" || name == "ItemSpawnerPremium ScrollHandle";
         }
 
         /// <summary>用 SDF 生成带描边/白边/填充的 9-slice 卡片 Sprite（64×64，4×4 超采样抗锯齿）。</summary>
@@ -775,7 +813,16 @@ namespace ItemSpawnerEnhancement
             texture.SetPixels32(pixels);
             texture.Apply(false, true);
 
-            float border = pad + radius + outlineWidth + innerWidth + 1f; // 9-slice 边框覆盖留白 + 圆角 + 内外描边，保证四角完整
+            // 9-slice 边框覆盖留白 + 圆角 + 内外描边，保证四角完整。
+            // 钳制到 size/2-1：Unity 要求左右 border 之和小于纹理宽度，否则 Sprite.Create 报错并产生退化 Sprite。
+            float border = pad + radius + outlineWidth + innerWidth + 1f;
+            float maxBorder = size * 0.5f - 1f;
+            if (border > maxBorder)
+            {
+                Plugin.Log.LogWarning("ItemSpawnerPremium: " + name + " 的 9-slice border " + border.ToString("0.##")
+                    + " 超过纹理上限 " + maxBorder.ToString("0.##") + "，已钳制（如需更大圆角请同步增大纹理尺寸）");
+                border = maxBorder;
+            }
             Sprite result = Sprite.Create(
                 texture,
                 new Rect(0f, 0f, size, size),
@@ -801,7 +848,7 @@ namespace ItemSpawnerEnhancement
         /// <summary>语言切换时刷新分类按钮的文字与字体（按钮 label 在创建时按当时语言固化）。</summary>
         internal static void RefreshButtonLabels()
         {
-            TMP_FontAsset font = ItemListView.NeedsCjkFont() ? ItemListView.GetGameBaseFont() : ItemListView.FindFont("DarumaDropOne-Regular SDF");
+            TMP_FontAsset font = ResolveFont();
             for (int i = 0; i < _categoryButtonLabels.Count; i++)
             {
                 TextMeshProUGUI label = _categoryButtonLabels[i];
@@ -809,7 +856,11 @@ namespace ItemSpawnerEnhancement
                 {
                     continue;
                 }
-                label.text = ItemCatalog.GetMajorLabel((MajorCategory)i);
+                // 用平行列表取分类值，不用索引强转（防枚举值变更后标签错位）
+                if (i < _categoryButtonMajors.Count)
+                {
+                    label.text = ItemCatalog.GetMajorLabel(_categoryButtonMajors[i]);
+                }
                 if (font != null)
                 {
                     label.font = font;
@@ -868,6 +919,7 @@ namespace ItemSpawnerEnhancement
 
             _categoryButtons.Clear();
             _categoryButtonLabels.Clear();
+            _categoryButtonMajors.Clear();
             MajorCategory[] majors = (MajorCategory[])Enum.GetValues(typeof(MajorCategory));
             for (int i = 0; i < majors.Length; i++)
             {
@@ -1025,7 +1077,7 @@ namespace ItemSpawnerEnhancement
             // 悬停反馈：PointerEnter 换 hover Sprite，PointerExit 恢复（仅非选中按钮，选中态不被打断）
             EventTrigger trigger = go.AddComponent<EventTrigger>();
             EventTrigger.Entry enter = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
-            enter.callback.AddListener(delegate { if ((MajorCategory)_categoryButtons.IndexOf(button) != _currentMajor) image.sprite = _btnHoverSprite; });
+            enter.callback.AddListener(delegate { if (captured != _currentMajor) image.sprite = _btnHoverSprite; });
             EventTrigger.Entry exit = new EventTrigger.Entry { eventID = EventTriggerType.PointerExit };
             exit.callback.AddListener(delegate { RefreshButtonColor(_categoryButtons.IndexOf(button)); });
             trigger.triggers.Add(enter);
@@ -1058,6 +1110,7 @@ namespace ItemSpawnerEnhancement
 
             _categoryButtons.Add(button);
             _categoryButtonLabels.Add(text);
+            _categoryButtonMajors.Add(major);
         }
 
         private static MajorCategory _currentMajor = MajorCategory.All;
@@ -1068,7 +1121,8 @@ namespace ItemSpawnerEnhancement
             {
                 return;
             }
-            bool selected = (MajorCategory)index == _currentMajor;
+            // 用平行列表取分类值，不用索引强转（防枚举值变更后错位）
+            bool selected = index < _categoryButtonMajors.Count && _categoryButtonMajors[index] == _currentMajor;
             Image image = _categoryButtons[index].targetGraphic as Image;
             if (image != null)
             {

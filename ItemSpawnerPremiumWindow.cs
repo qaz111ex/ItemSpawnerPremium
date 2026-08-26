@@ -20,10 +20,15 @@ namespace ItemSpawnerEnhancement
         /// <summary>
         /// 物品生成入口：CharacterItems.SpawnItemInHand 在反编译后为 internal，
         /// 跨程序集无法直接调用，此处用反射缓存（行为等价于直接调用）。
+        /// 显式指定参数类型：避免未来游戏新增同名重载时抛 AmbiguousMatchException，
+        /// 该异常发生在静态字段初始化中会升级为 TypeInitializationException 使整个窗口类型不可用。
         /// </summary>
         private static readonly MethodInfo SpawnItemInHandMethod =
             typeof(CharacterItems).GetMethod("SpawnItemInHand",
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(string) },
+                null);
 
         // UI 节点引用（UiEnhancer 构建后回填）
         internal TMP_InputField searchInput;
@@ -104,11 +109,13 @@ namespace ItemSpawnerEnhancement
             {
                 return false;
             }
-            if (!PhotonNetwork.IsConnected || Character.localCharacter == null
+            // 用 InRoom 而非 IsConnected：后者在 OfflineMode 或仅连上 master server 未进房时也为 true，
+            // 此时 SpawnItemInHand 的 RPC 会被 Photon 静默丢弃（只记 Warning），玩家看到"点了没反应"。
+            if (!PhotonNetwork.InRoom || Character.localCharacter == null
                 || Character.localCharacter.refs == null
                 || Character.localCharacter.refs.items == null)
             {
-                Plugin.Log.LogWarning("ItemSpawnerPremium: 无法生成 " + item.gameObject.name + "（未连接到房间或本地角色不存在）");
+                Plugin.Log.LogWarning("ItemSpawnerPremium: 无法生成 " + item.gameObject.name + "（未进入房间或本地角色不存在）");
                 return false;
             }
             if (SpawnItemInHandMethod == null)

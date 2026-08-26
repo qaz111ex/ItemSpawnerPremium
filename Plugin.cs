@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace ItemSpawnerEnhancement
 {
-    [BepInPlugin("com.itemspawnerpremium.ItemSpawnerPremium", "ItemSpawnerPremium", "2.0.1")]
+    [BepInPlugin("com.itemspawnerpremium.ItemSpawnerPremium", "ItemSpawnerPremium", "2.1.0")]
     public class Plugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log { get; private set; }
@@ -40,7 +40,8 @@ namespace ItemSpawnerEnhancement
         {
             Log = Logger;
 
-            // BepInEx 5.x 的 ConfigEntry.Value setter 不会自动写盘，开启后每次赋值立即持久化到磁盘
+            // 显式声明依赖：收藏在 FavoriteStore 中通过 ConfigEntry.Value 赋值持久化，
+            // 依赖 SaveOnConfigSet 立即写盘（BepInEx 5 默认即 true，此处显式写出以防默认值变更）。
             Config.SaveOnConfigSet = true;
 
             _toggleKey = Config.Bind<KeyCode>(
@@ -56,8 +57,19 @@ namespace ItemSpawnerEnhancement
                 new ConfigDescription(
                     "UI 样式：HandDrawn=手绘风（默认，实色暖卡纸）；Transparent=透明风（面板半透明，搜索框不透明）。",
                     new AcceptableValueList<string>("HandDrawn", "Transparent")));
-            // 热重载：PEAKLib.ModConfig 改样式时触发 SettingChanged，重新烘焙 Sprite 并套用到所有 Image
-            _styleEntry.SettingChanged += delegate { UiEnhancer.OnStyleChanged(); };
+            // 热重载：PEAKLib.ModConfig 改样式时触发 SettingChanged，重新烘焙 Sprite 并套用到所有 Image。
+            // 包 try/catch：BepInEx 会捕获订阅者异常但只记 Error，这里主动记录更精确的上下文。
+            _styleEntry.SettingChanged += delegate
+            {
+                try
+                {
+                    UiEnhancer.OnStyleChanged();
+                }
+                catch (Exception ex)
+                {
+                    Log.LogError("ItemSpawnerPremium: 样式热重载失败: " + ex);
+                }
+            };
 
             _hideUnused = Config.Bind<bool>(
                 "General",
@@ -67,9 +79,11 @@ namespace ItemSpawnerEnhancement
             _hideUnused.SettingChanged += delegate
             {
                 ItemListView view = (Window != null) ? Window.GetComponent<ItemListView>() : null;
-                if (view != null && view.Initialized)
+                if (view != null)
                 {
-                    view.RefreshCatalog();
+                    // 只置标志：BepInEx 的 SettingChanged 在调用方线程同步派发，
+                    // 直接做 Destroy/StartCoroutine 在非主线程会抛异常；由 ItemListView.Update 在主线程消费。
+                    view.RequestRefresh();
                 }
             };
 

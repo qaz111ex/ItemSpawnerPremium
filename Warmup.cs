@@ -11,8 +11,9 @@ namespace ItemSpawnerEnhancement
     ///    Instantiate 提前到加载阶段。
     /// 2) 渲染 priming：加载屏幕显示期间短暂激活子 Canvas 渲染 1~2 帧，提前完成
     ///    GPU 重活（图标纹理上传 + TMP 字体图集栅格化 + Canvas 首次合批/mesh 构建），
-    ///    消除首次 F5 打开面板时的卡顿。期间临时把 Canvas sortingOrder 降到极低值，
-    ///    确保渲染发生在加载屏幕之下、不闪屏（当前架构 panel 是独立子 Canvas，不影响窗口根）。
+    ///    消除首次 F5 打开面板时的卡顿。期间用 CanvasGroup.alpha=0 使其不可见
+    ///    （alpha=0 仍会执行布局与渲染提交，GPU 预热有效），避免闪屏；
+    ///    同时置 blocksRaycasts=false，防止不可见面板拦截点击。
     ///
     /// 常驻（不 Destroy）：<see cref="Update"/> 每 0.5 秒轮询一次；
     /// 窗口是 DontDestroyOnLoad 单例（全程只有一个实例），预热过一次后由 <see cref="_warmed"/> 标志跳过，
@@ -68,13 +69,14 @@ namespace ItemSpawnerEnhancement
                     {
                         return;
                     }
-                    _warmed = true; // 先标记，失败也不重试
                     try
                     {
                         UiEnhancer.Setup(window);
+                        _warmed = true; // 成功后才标记，失败时保留重试机会（F5 兜底之外仍可自愈）
                     }
                     catch (Exception ex)
                     {
+                        _warmed = true; // 抛异常说明环境异常，避免每 0.5 秒反复抛；由 F5（OnOpen→Setup）兜底
                         Plugin.Log.LogError("ItemSpawnerPremium: 预热 Setup 失败: " + ex);
                         return;
                     }
@@ -140,8 +142,6 @@ namespace ItemSpawnerEnhancement
             yield return null;   // 渲染帧 → GPU 图标纹理上传 + TMP 图集栅格化
             yield return null;   // 再一帧，布局稳定
 
-            _primed = true;      // 2 帧渲染完成，GPU 预热达成（早退/异常路径不会执行到此，下次 loading 可重试）
-
             try
             {
                 if (!window.isOpen)
@@ -149,11 +149,14 @@ namespace ItemSpawnerEnhancement
                     window.panel.SetActive(false);  // 若 priming 期间玩家恰好 F5 打开窗口，则不硬隐藏
                 }
                 Canvas.ForceUpdateCanvases();
+                // 只有完整收尾成功才算预热达成：若在此之前置位，收尾抛异常会留下"面板可见且 alpha 已恢复"的窗口。
+                _primed = true;
                 Plugin.Log.LogInfo("ItemSpawnerPremium: 渲染 priming 完成");
             }
             catch (Exception ex)
             {
                 Plugin.Log.LogWarning("ItemSpawnerPremium: 渲染 priming 关闭中断: " + ex.Message);
+                try { if (!window.isOpen) { window.panel.SetActive(false); } } catch { }
             }
             finally
             {

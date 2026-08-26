@@ -71,18 +71,26 @@ namespace ItemSpawnerEnhancement
                 return;
             }
             var valid = new HashSet<string>(validNames, StringComparer.Ordinal);
-            int before = _itemNames.Count;
-            _itemNames.RemoveWhere(n => !valid.Contains(n));
-            if (_itemNames.Count != before)
+            if (valid.Count == 0)
             {
-                try
-                {
-                    _entry.Value = Serialize(_itemNames);
-                }
-                catch (Exception ex)
-                {
-                    Plugin.Log.LogWarning("ItemSpawnerPremium: 清理收藏配置失败: " + ex.Message);
-                }
+                return; // 空集合视为"全集未知"，绝不据此清空收藏
+            }
+            // write-ahead：先在副本上删除并写盘成功，再替换内存集合（与 TryToggle 一致），
+            // 避免写盘失败时内存已删、磁盘未删导致重启后收藏"复活"的不一致。
+            var updated = new HashSet<string>(_itemNames, StringComparer.Ordinal);
+            updated.RemoveWhere(n => !valid.Contains(n));
+            if (updated.Count == _itemNames.Count)
+            {
+                return; // 无脏数据
+            }
+            try
+            {
+                _entry.Value = Serialize(updated);
+                _itemNames = updated;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogWarning("ItemSpawnerPremium: 清理收藏配置失败，保留原收藏: " + ex.Message);
             }
         }
 
@@ -105,15 +113,18 @@ namespace ItemSpawnerEnhancement
             try
             {
                 string[] arr = JsonConvert.DeserializeObject<string[]>(serialized);
-                set = new HashSet<string>(StringComparer.Ordinal);
-                if (arr != null)
+                if (arr == null)
                 {
-                    foreach (string n in arr)
+                    // 合法 JSON 但非数组（如 "null" 或空串）：视为损坏，让调用方回写 "[]" 修复配置
+                    set = null;
+                    return false;
+                }
+                set = new HashSet<string>(StringComparer.Ordinal);
+                foreach (string n in arr)
+                {
+                    if (!string.IsNullOrWhiteSpace(n))
                     {
-                        if (!string.IsNullOrWhiteSpace(n))
-                        {
-                            set.Add(n);
-                        }
+                        set.Add(n);
                     }
                 }
                 return true;

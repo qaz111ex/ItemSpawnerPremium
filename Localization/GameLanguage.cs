@@ -12,6 +12,7 @@ namespace ItemSpawnerEnhancement
         {
             switch (language)
             {
+                case LocalizedText.Language.English: return "en";
                 case LocalizedText.Language.French: return "fr";
                 case LocalizedText.Language.Italian: return "it";
                 case LocalizedText.Language.German: return "de";
@@ -26,6 +27,8 @@ namespace ItemSpawnerEnhancement
                 case LocalizedText.Language.Korean: return "ko";
                 case LocalizedText.Language.Polish: return "pl";
                 case LocalizedText.Language.Turkish: return "tr";
+                // 未知语言（游戏未来新增）回退英文；这里不写日志以免每次取值刷屏，
+                // 缺失的语言会在 LocalizationCatalog 回退链中表现为英文文案。
                 default: return "en";
             }
         }
