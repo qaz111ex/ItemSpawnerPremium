@@ -5,12 +5,29 @@
     <LangVersion>7.3</LangVersion>
     <AssemblyName>ItemSpawnerPremium</AssemblyName>
     <RootNamespace>ItemSpawnerEnhancement</RootNamespace>
-    <!-- 与 BepInPlugin 版本保持一致，便于从程序集属性排查线上版本 -->
-    <Version>2.1.0</Version>
+    <!-- 与 BepInPlugin 版本保持一致，便于从程序集属性排查线上版本。
+         改版本时必须同步四处：本处、Plugin.cs 的 [BepInPlugin]、package\manifest.json、CHANGELOG.md。
+         pack.ps1 会强制校验四处一致，不一致直接拒绝打包。 -->
+    <Version>2.2.0</Version>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <OutputPath>bin\</OutputPath>
-    <Deterministic>false</Deterministic>
+    <!-- 必须按配置分目录：曾经统一输出到 bin\，Debug 与 Release 互相覆盖，
+         导致打包脚本从 bin\ 取到的是最后一次构建（Debug）的产物并发布出去。 -->
+    <OutputPath>bin\$(Configuration)\</OutputPath>
+  </PropertyGroup>
+
+  <!-- Release：不产生 pdb，发行 DLL 里不残留本机 pdb 绝对路径；
+       并开启确定性构建 + 源路径归一化，使相同提交在任何机器上产出字节一致的 DLL。
+       ContinuousIntegrationBuild 只在 Release 生效，因此不影响本地 Debug 断点调试体验。 -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <!-- Debug：保留 portable pdb 供本地调试；这些产物永远不进 dist（pack.ps1 只取 bin\Release\ 的 DLL）。 -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <DebugType>portable</DebugType>
   </PropertyGroup>
 
   <ItemGroup>
@@ -38,6 +55,9 @@
       <HintPath>$(GameDir)\PEAK_Data\Managed\PhotonUnityNetworking.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- 【间接必需，勿删】本模组不直接写 UnityEngine.dll 里的类型，但该程序集承载
+         MonoBehaviour 等类型的**类型转发**（type forward）到 CoreModule。
+         删除后编译报 15 个 CS0012（"类型在未引用的程序集中定义"）。已因误删踩坑过。 -->
     <Reference Include="UnityEngine">
       <HintPath>$(GameDir)\PEAK_Data\Managed\UnityEngine.dll</HintPath>
       <Private>false</Private>
@@ -70,6 +90,9 @@
       <HintPath>$(GameDir)\PEAK_Data\Managed\UnityEngine.ParticleSystemModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- 【间接必需，勿删】代码里不出现 Sirenix 类型，但 SingletonAsset<T>（Zorro.Core）
+         继承 Odin 的 SerializedScriptableObject，访问 ItemDatabase.Instance 需要该基类可见。
+         删除后编译报 2 个 CS0012。已因误删踩坑过。 -->
     <Reference Include="Sirenix.Serialization">
       <HintPath>$(GameDir)\PEAK_Data\Managed\Sirenix.Serialization.dll</HintPath>
       <Private>false</Private>
@@ -78,6 +101,15 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Localization\*.json" />
+  </ItemGroup>
+
+  <!-- 测试工程独立存在于 tests\ 下（net8.0 + NUnit，零 Unity 依赖）。
+       本工程是 SDK 风格，默认递归 glob **\*.cs，若不排除会把测试代码编进模组 DLL
+       （既引入 NUnit 依赖，又让 BepInEx 加载无用类型）。tests\ 也不应被 Localization 资源规则波及。 -->
+  <ItemGroup>
+    <Compile Remove="tests\**" />
+    <EmbeddedResource Remove="tests\**" />
+    <None Remove="tests\**" />
   </ItemGroup>
 
 </Project>

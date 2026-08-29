@@ -39,6 +39,37 @@ namespace ItemSpawnerEnhancement
         private static Sprite _scrollbarHandleSprite;
         private static Sprite _shadowSprite;
 
+        // ── 字体解析缓存 ────────────────────────────────────────────────
+        // ResolveFont 在 Setup / Build / CreateCategoryBar / RefreshButtonLabels 各调一次，
+        // 而 ItemListView.FindFont 内部是 Resources.FindObjectsOfTypeAll<TMP_FontAsset>() 全量遍历
+        // （PEAK 的已加载对象量级下单次可达数十毫秒），故装饰字体的查询结果必须静态缓存。
+        private static TMP_FontAsset _decorativeFont;
+        // 负缓存：仅当"确实遍历过但没找到"时置位，避免每次 ResolveFont 都重跑全量遍历。
+        // 注意 TMP_FontAsset 继承 UnityEngine.Object，其 == null 也会把"已销毁/已卸载"的对象判为 null：
+        // 因此若字体曾找到、之后资源被卸载，_decorativeFont 变 null 而本标志仍为 false，
+        // 下次会重查一次（而非永久放弃装饰字体），重查仍失败才真正转入负缓存。
+        private static bool _decorativeFontMissing;
+
+        // 装饰字体的「字符覆盖探测」结果缓存（见 DecorativeFontCoversUiText）。
+        // 按「当前语言 + 字体实例 ID」为键自失效：语言切换（RefreshButtonLabels 路径）与字体资源被换
+        // 都会让键不匹配从而重新探测，无需在别处手动清缓存 —— 也覆盖了「面板尚未构建时玩家已切过语言」
+        // 这种不经过 RefreshButtonLabels 的路径。
+        private static bool _coverageProbed;
+        private static bool _coverageResult;
+        private static LocalizedText.Language _coverageLanguage;
+        private static int _coverageFontId;
+
+        /// <summary>
+        /// 本模组全部 UI 文案 key，作为字体能力探测的取样来源（与 Localization/*.json 的 key 集合一致）。
+        /// 只取这 10 条界面文案、不取物品名：物品名有 150+ 条且依赖 ItemDatabase 就绪，
+        /// 而 ResolveFont 在 Setup 最早期就会被调用，此时目录还没建起来。
+        /// </summary>
+        private static readonly string[] UiTextKeys =
+        {
+            "catAll", "catTools", "catFood", "catMystical", "catEquipment",
+            "catConsumables", "catProps", "catFavorite", "searchPlaceholder", "rightClickHint",
+        };
+
         /// <summary>一套完整 UI 配色（按样式切换）。颜色通过下方 getter 属性按当前样式取值，所有引用点无需改动。</summary>
         private sealed class Palette
         {
@@ -137,6 +168,25 @@ namespace ItemSpawnerEnhancement
             ItemListView existing = window.GetComponent<ItemListView>();
             if (existing != null && (existing.Initialized || existing.Building))
             {
+                // 但「打开即聚焦搜索框」必须每次打开都做：Setup 由 OnOpen 调用，第二次起会走到这个提前 return。
+                // 若只在 Setup 末尾激活，就退化成"仅第一次打开自动聚焦"。故在幂等 return 之前先激活。
+                FocusSearch(window);
+                return;
+            }
+            // 字体前置检查（必须在 EnsureCanvas/Build 之前，但放在幂等守卫之后 ——
+            // 已建好的面板不该因为字体查询暂时失败而被挡在门外）：
+            // ResolveFont 的兜底链末端是 ItemListView.FindFont("LiberationSans SDF")，它可以返回 null。
+            // Warmup 路径有 FontFallbackSwapper.instance != null 前置检查，但 F5 兜底路径
+            // （OnOpen → Setup）没有。一旦 font 为 null 而 Build 照常执行，各处 `.font = font`
+            // 会把 TMP_Text.font 置空，TMP 随后在 GenerateTextMesh 内解引用 m_FontAsset 抛 NRE ——
+            // 那是每帧渲染路径，结果是日志刷屏 + 面板不可用。
+            // 故此处直接放弃本次 Setup：不创建任何节点、不挂 ItemListView，Initialized 保持 false，
+            // 下一次 F5 或 Warmup 轮询会重试（届时字体可能已加载好）。
+            // ResolveFont 内含 Resources.FindObjectsOfTypeAll，但装饰字体查询与字符覆盖探测都已静态缓存，
+            // 本次检查之后 Build / CreateCategoryBar 的两次调用都命中缓存。
+            if (ResolveFont() == null)
+            {
+                Plugin.Log.LogWarning("ItemSpawnerPremium: 未找到任何可用 TMP 字体，本次跳过 UI 构建（稍后重试）");
                 return;
             }
 
@@ -173,6 +223,37 @@ namespace ItemSpawnerEnhancement
 
             // 4. 刷新分类按钮选中态
             OnMajorSelected(MajorCategory.All);
+
+            // 5. 打开即聚焦搜索框（放最后：此时 UI 树已完整、searchInput 已回填）
+            FocusSearch(window);
+        }
+
+        /// <summary>
+        /// 激活搜索框输入焦点（"打开即搜索"）。
+        ///
+        /// 为什么需要它：窗口的 selectOnOpen/objectToSelectOnOpen 走的是
+        /// MenuWindow.SelectStartingElement → UIInputHandler.SetSelectedObject，而后者
+        /// （反编译 UIInputHandler.cs:69-75）**只在 InputHandler.GetCurrentUsedInputScheme() == Gamepad**
+        /// 时才 EventSystem.SetSelectedGameObject，键鼠方案下是彻底的空操作；
+        /// 且 TMP_InputField 即使被 Select 也仍需 ActivateInputField() 才会接收键入。
+        /// 结果就是键鼠玩家每次打开面板都得多点一次搜索框。
+        ///
+        /// 时序：Setup 由 OnOpen 调用，此刻 MenuWindow.Open 还没执行 SelectStartingElement()。
+        /// 但如上所述键鼠下它是空操作，不会把焦点抢走；Gamepad 下它会 SetSelectedGameObject(searchInput)，
+        /// 而 TMP_InputField.ActivateInputFieldInternal 本身也会把自己设为 selected（TMP_InputField.cs:3805），
+        /// 目标一致，不冲突。
+        ///
+        /// ActivateInputField 内部要求 IsActive() && IsInteractable()（TMP_InputField.cs:3788），
+        /// 且真正激活发生在下一次 LateUpdate（m_ShouldActivateNextUpdate）。故 Warmup 预热路径
+        /// （面板 inactive）调用它是安全的空操作，这里仍加 isOpen 守卫避免无谓调用。
+        /// </summary>
+        private static void FocusSearch(ItemSpawnerPremiumWindow window)
+        {
+            if (window == null || !window.isOpen || window.searchInput == null)
+            {
+                return;
+            }
+            window.searchInput.ActivateInputField();
         }
 
         private static void EnsureCanvas(ItemSpawnerPremiumWindow window)
@@ -226,10 +307,244 @@ namespace ItemSpawnerEnhancement
             CreateCategoryBar(panelRt, (RectTransform)searchInput.transform);
         }
 
-        private static TMP_FontAsset ResolveFont()
+        /// <summary>
+        /// 解析当前语言应使用的字体。**这是全模组唯一的字体决策入口**，
+        /// UiEnhancer 构建的节点与 ItemListView 动态刷新的节点（物品名、搜索框文字/占位符）
+        /// 必须都走它，否则两边会得出不同结论 —— 例如波兰语下 UiEnhancer 已降级到主字体，
+        /// 而 ItemListView 仍按自己缓存的装饰字体给物品名赋值，物品名照样显示方块。
+        /// </summary>
+        internal static TMP_FontAsset ResolveFont()
         {
-            TMP_FontAsset font = ItemListView.NeedsCjkFont() ? ItemListView.GetGameBaseFont() : ItemListView.FindFont("DarumaDropOne-Regular SDF");
-            return font != null ? font : ItemListView.GetGameBaseFont();
+            // CJK/西里尔语言直接走游戏主字体（含 fallback 链）：装饰字体连基本字形都没有，无需探测。
+            // 注意 ItemListView.NeedsCjkFont() 只覆盖 简/繁/日/韩/俄/乌，剩下 9 种拉丁语言里
+            // pl/tr/de/fr/it/es/pt-BR 的文案含大量 Latin-1 Supplement / Latin Extended-A 字符
+            // （ę ż ü ğ ş ı É í ñ）以及 U+2014 em dash，DarumaDropOne 这类日系手绘装饰字体
+            // 的拉丁子集未必覆盖 —— 2.1.0 已因同样原因把俄/乌划归主字体。
+            // 由于不能修改 ItemListView.NeedsCjkFont()，这里改为「用当前语言的真实文案去探测装饰字体」，
+            // 覆盖不全就降级到主字体，从而对未来新增语言也自动生效。
+            //
+            // 注意 Loc 依赖注入：BuildUiProbeText 走 Loc.Get，而 Loc 的语言代码提供者由
+            // Plugin.Awake 注入。若在注入之前调用，Loc 会回退英文文案 —— 那会让非英文语言
+            // 探测到"英文文案全覆盖"而错误保留装饰字体。实际调用链上 Setup/Build/RefreshButtonLabels
+            // 都发生在 Plugin.Awake 之后（窗口由 GUIManager.Start 的 Postfix 创建），故安全；
+            // 但覆盖探测结果是按语言缓存的，若将来有更早的调用点，必须同时清 _coverageProbed。
+            if (ItemListView.NeedsCjkFont())
+            {
+                return ItemListView.GetGameBaseFont();
+            }
+            TMP_FontAsset decorative = GetDecorativeFont();
+            if (decorative != null && DecorativeFontCoversUiText(decorative))
+            {
+                return decorative;
+            }
+            return ItemListView.GetGameBaseFont();
+        }
+
+        /// <summary>
+        /// 取装饰字体（含负缓存）：避免每次 ResolveFont 都跑一遍
+        /// ItemListView.FindFont → Resources.FindObjectsOfTypeAll&lt;TMP_FontAsset&gt;() 全量遍历。
+        /// </summary>
+        private static TMP_FontAsset GetDecorativeFont()
+        {
+            // TMP_FontAsset 是 UnityEngine.Object，== null 同时覆盖「从未查到」与「查到后资源被卸载/销毁」，
+            // 后者必须重查（字体资源可能随场景卸载后又被重新加载）。
+            if (_decorativeFont != null)
+            {
+                return _decorativeFont;
+            }
+            if (_decorativeFontMissing)
+            {
+                return null; // 上次遍历确认不存在，不再重复全量遍历
+            }
+            _decorativeFont = ItemListView.FindFont("DarumaDropOne-Regular SDF");
+            if (_decorativeFont == null)
+            {
+                // 只有在「字体系统确实已就绪」时才转入负缓存。
+                // Setup 可能在 TMP 字体资源加载完成之前就被 F5 路径触发（Warmup 路径有
+                // FontFallbackSwapper.instance != null 前置检查，F5 路径没有），此时 FindFont
+                // 找不到装饰字体只是"还没加载"，若无条件记成"不存在"，之后即使字体加载好了
+                // 也永远走不回装饰字体 —— 英文玩家会永久失去手绘风。
+                // 用「游戏主字体是否已能取到」作为就绪判据：取不到说明整个字体系统都没起来，
+                // 本次不记负缓存，下次重查。
+                _decorativeFontMissing = ItemListView.GetGameBaseFont() != null;
+            }
+            return _decorativeFont;
+        }
+
+        /// <summary>
+        /// 探测装饰字体是否覆盖「当前语言实际要显示的 UI 文案字符集」。
+        /// 结果按「语言 + 字体实例」缓存：语言切换或字体资源被替换后键不匹配即自动重探，
+        /// 无需在别处手动清缓存。
+        /// </summary>
+        private static bool DecorativeFontCoversUiText(TMP_FontAsset font)
+        {
+            LocalizedText.Language language = LocalizedText.CURRENT_LANGUAGE;
+            int fontId = font.GetInstanceID();
+            if (_coverageProbed && _coverageLanguage == language && _coverageFontId == fontId)
+            {
+                return _coverageResult;
+            }
+
+            string probe = BuildUiProbeText();
+            bool covered;
+            uint[] missing = null;
+            try
+            {
+                // 关键：searchFallbacks 与 tryAddCharacter 都必须传 false。
+                // 1) tryAddCharacter=true 时，TMP_FontAsset.HasCharacters（反编译 TMP_FontAsset.cs:1108）
+                //    会对 atlasPopulationMode == Dynamic / DynamicOS 的字体现场 TryAddCharacterInternal
+                //    并返回 true —— 那是"能动态栅格化"，不代表这个装饰字体本身有该字形，
+                //    探测会假阳性（而且会真的往图集里塞字，产生副作用）。传 false 只查 characterLookupTable。
+                // 2) searchFallbacks=true 会连 fallbackFontAssetTable / TMP_Settings 一起算"覆盖"，
+                //    结果是渲染时逐字混用主字体的字形，标签变成两种字体拼接，观感比统一用主字体更差。
+                //    故这里要求装饰字体自身完整覆盖，否则整体降级 —— 排版一致优先。
+                covered = font.HasCharacters(probe, out missing, false, false);
+            }
+            catch (Exception ex)
+            {
+                // 探测本身失败（字体资源损坏、characterLookupTable 构建异常等）：保守判为不覆盖，
+                // 降级到游戏主字体。宁可失去手绘装饰风，也不能显示方块。
+                Plugin.Log.LogWarning("ItemSpawnerPremium: 装饰字体字符探测失败，改用游戏主字体: " + ex.Message);
+                covered = false;
+            }
+
+            _coverageProbed = true;
+            _coverageLanguage = language;
+            _coverageFontId = fontId;
+            _coverageResult = covered;
+            if (!covered)
+            {
+                // 每种语言只会记一次（探测结果已缓存），不会刷屏
+                Plugin.Log.LogInfo("ItemSpawnerPremium: 装饰字体缺少当前语言字形（"
+                    + DescribeMissing(missing) + "），界面改用游戏主字体");
+            }
+            return covered;
+        }
+
+        /// <summary>
+        /// 拼出探测用字符串：当前语言的 10 条 UI 文案。
+        /// 不探测物品名：一是 150+ 条开销大，二是 ResolveFont 在 Setup 最早期就会被调用，
+        /// 此时 ItemListView 目录还没建起来，取不到显示名。
+        /// 支持全大写的语言额外追加大写形态：分类/收藏按钮 label 用 FontStyles.UpperCase 渲染，
+        /// TMP 在 GenerateTextMesh 里逐字 char.ToUpper（反编译 TMP_Text.cs:3586），
+        /// 真正需要的字形是大写形态（fr 的 é→É、pl 的 ż→Ż）。
+        /// 同时取当前区域与不变区域两种大写结果：char.ToUpper 走 CurrentCulture，
+        /// 土耳其区域下 i→İ(U+0130) 与不变区域的 i→I 不同，两者都要覆盖才算安全。
+        /// </summary>
+        private static string BuildUiProbeText()
+        {
+            bool allCaps = LocalizedText.languageSupportsAllCaps;
+            System.Text.StringBuilder sb = new System.Text.StringBuilder(512);
+            for (int i = 0; i < UiTextKeys.Length; i++)
+            {
+                string value = Loc.Get(UiTextKeys[i]);
+                if (string.IsNullOrEmpty(value))
+                {
+                    continue;
+                }
+                sb.Append(value);
+                if (allCaps)
+                {
+                    sb.Append(value.ToUpperInvariant());
+                    sb.Append(value.ToUpper());
+                }
+            }
+            sb.Append(GetLanguageDiacritics());
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 当前语言的完整变音字母集（大小写成对，含物品名会用到但 UI 文案里没出现的字符）。
+        ///
+        /// 为什么需要它：探测只取 10 条 UI 文案，但游戏侧物品名同样含扩展拉丁字符，
+        /// 且用到的字母不一定出现在 UI 文案里 —— 例如波兰语 "ZWÓJ ANTYSZNURA" 的 Ó、
+        /// 土耳其语 "ANTİ-HALAT MAKARASI" 的 İ、"KIRMIZI ÇITIRYEMİŞ" 的 Ç，
+        /// pl.json / tr.json 里都没有。逐条探测 150+ 物品名开销大且时机不对
+        /// （ResolveFont 在 Setup 最早期调用，此时目录还没建），
+        /// 改为按语言补一个固定的字母表常量：字符集封闭、零查询开销，且能覆盖物品名。
+        /// 只列该语言正字法真正使用的字母，不搞"全 Latin-1 全都要"——
+        /// 那会让装饰字体因为缺一个用不到的字形而被无谓地整体降级。
+        /// </summary>
+        private static string GetLanguageDiacritics()
+        {
+            switch (LocalizedText.CURRENT_LANGUAGE)
+            {
+                case LocalizedText.Language.Polish:
+                    return "ąĄćĆęĘłŁńŃóÓśŚźŹżŻ";
+                case LocalizedText.Language.Turkish:
+                    // 土耳其语特有的点/无点 i 对（ı U+0131 / İ U+0130）最容易缺字
+                    return "çÇğĞıİöÖşŞüÜ";
+                case LocalizedText.Language.German:
+                    return "äÄöÖüÜß";
+                case LocalizedText.Language.French:
+                    return "àÀâÂæÆçÇéÉèÈêÊëËîÎïÏôÔœŒùÙûÛüÜÿŸ";
+                case LocalizedText.Language.Italian:
+                    return "àÀèÈéÉìÌîÎòÒóÓùÙ";
+                case LocalizedText.Language.SpanishSpain:
+                case LocalizedText.Language.SpanishLatam:
+                    return "áÁéÉíÍñÑóÓúÚüÜ¡¿";
+                case LocalizedText.Language.BRPortuguese:
+                    return "áÁàÀâÂãÃçÇéÉêÊíÍóÓôÔõÕúÚ";
+                default:
+                    // 英语（以及未来新增的未知语言）：不补充。
+                    // 未知语言若真有扩展字符，UI 文案本身的探测仍会兜住。
+                    return string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// 把缺失码点列表格式化成日志文本（去重后最多列 8 个，避免长串刷日志）。
+        ///
+        /// 必须去重：探测串刻意包含「原文 + ToUpperInvariant + ToUpper」三份（见 BuildUiProbeText），
+        /// 同一个缺失字符会在 HasCharacters 的 missing 数组里出现多次。
+        /// 实测土耳其语原始输出是 "U+011F U+011E U+011E U+015F U+015E U+015E U+011F U+0131 …共 17 个"
+        /// —— 8 个位置里有 3 个是重复的，既浪费展示位又让人误判缺失字符数量。
+        /// </summary>
+        private static string DescribeMissing(uint[] missing)
+        {
+            if (missing == null || missing.Length == 0)
+            {
+                return "字符表不可用";
+            }
+            List<uint> unique = new List<uint>(missing.Length);
+            for (int i = 0; i < missing.Length; i++)
+            {
+                if (!unique.Contains(missing[i]))
+                {
+                    unique.Add(missing[i]);
+                }
+            }
+            System.Text.StringBuilder sb = new System.Text.StringBuilder(64);
+            int shown = unique.Count < 8 ? unique.Count : 8;
+            for (int i = 0; i < shown; i++)
+            {
+                if (i > 0)
+                {
+                    sb.Append(' ');
+                }
+                sb.Append("U+").Append(unique[i].ToString("X4"));
+            }
+            if (unique.Count > shown)
+            {
+                sb.Append(" …共 ").Append(unique.Count).Append(" 个");
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 给 TMP 文本套字体，font 为 null 时保留组件默认字体。
+        /// Setup 开头已做过 ResolveFont() 非 null 的前置检查，这里是第二道保险：
+        /// TMP_Text.font = null 会让 TMP 在 GenerateTextMesh 里解引用 m_FontAsset 抛 NRE，
+        /// 而那是每帧渲染路径（日志刷屏 + 面板不可用）。做法与 ItemListView.RefreshFonts 的
+        /// `if (font == null) return;` 一致。
+        /// </summary>
+        private static void ApplyFont(TMP_Text text, TMP_FontAsset font)
+        {
+            if (text == null || font == null)
+            {
+                return;
+            }
+            text.font = font;
         }
 
         private static RectTransform CreatePanel(RectTransform root)
@@ -266,8 +581,11 @@ namespace ItemSpawnerEnhancement
             GameObject go = new GameObject("SearchInput", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(TMP_InputField));
             RectTransform rt = (RectTransform)go.transform;
             rt.SetParent(panel, false);
-            rt.anchorMin = new Vector2(0.07f, 1f);
-            rt.anchorMax = new Vector2(0.93f, 1f);
+            // 与分类条（CreateCategoryBar 的 0.05/0.95）用同一组水平锚点：
+            // 原值 0.07/0.93 使搜索框左右各比分类条内缩 2% 面板宽，两者边缘不齐，
+            // 视觉上像是"搜索框被无意缩了一圈"。统一到分类条的锚点（搜索框变宽）。
+            rt.anchorMin = new Vector2(0.05f, 1f);
+            rt.anchorMax = new Vector2(0.95f, 1f);
             rt.pivot = new Vector2(0.5f, 1f);
             rt.anchoredPosition = new Vector2(0f, -12f);
             rt.sizeDelta = new Vector2(0f, 50f);
@@ -294,7 +612,7 @@ namespace ItemSpawnerEnhancement
             phRt.offsetMin = Vector2.zero;
             phRt.offsetMax = Vector2.zero;
             TextMeshProUGUI placeholder = phGo.GetComponent<TextMeshProUGUI>();
-            placeholder.font = font;
+            ApplyFont(placeholder, font);
             placeholder.fontSize = 24f;
             placeholder.fontStyle = FontStyles.Italic;
             placeholder.color = ColorPlaceholder;
@@ -313,7 +631,7 @@ namespace ItemSpawnerEnhancement
             textRt.offsetMin = Vector2.zero;
             textRt.offsetMax = Vector2.zero;
             TextMeshProUGUI text = textGo.GetComponent<TextMeshProUGUI>();
-            text.font = font;
+            ApplyFont(text, font);
             text.fontSize = 24f;
             text.color = ColorTextIdle;
             text.alignment = TextAlignmentOptions.MidlineLeft;
@@ -347,7 +665,14 @@ namespace ItemSpawnerEnhancement
             viewportRt.anchorMin = Vector2.zero;
             viewportRt.anchorMax = Vector2.one;
             viewportRt.offsetMin = Vector2.zero;
-            viewportRt.offsetMax = Vector2.zero;
+            // 右侧让出 16px（14px 滚动条 + 2px 余量）：滚动条是 scrollRt 的子节点、位置相对 scrollRt 靠右，
+            // 且比 Viewport 后创建（在上层）+ raycastTarget=true；而 verticalScrollbarVisibility=Permanent
+            // **不会**自动收缩 viewport（只有 AutoHideAndExpandViewport 会）。
+            // 若 Viewport 仍占满，Grid 右 padding 只有 8px < 14px，某些分辨率下最右列卡片的右缘会被
+            // 滚动条压住，该区域的左键生成/右键收藏都被滚动条吞掉。
+            // 收缩 Viewport 后 Content（anchor 0,1 → 1,1）随之变窄，Grid 列数可能相应减少一列 —— 这是期望行为；
+            // 滚动条自身位置不受影响（它挂在 scrollRt 上，不是 viewport 的子节点）。
+            viewportRt.offsetMax = new Vector2(-16f, 0f);
             Image viewportImg = viewportGo.GetComponent<Image>();
             viewportImg.sprite = null;
             viewportImg.color = new Color(1f, 1f, 1f, 0.01f);
@@ -474,7 +799,7 @@ namespace ItemSpawnerEnhancement
             nameRt.anchoredPosition = new Vector2(0f, 4f);
             nameRt.sizeDelta = new Vector2(-10f, 36f);
             TextMeshProUGUI name = nameGo.GetComponent<TextMeshProUGUI>();
-            name.font = font;
+            ApplyFont(name, font);
             name.fontSize = 14f;
             name.color = ColorTextIdle;
             name.alignment = TextAlignmentOptions.Center;   // 居中
@@ -498,6 +823,17 @@ namespace ItemSpawnerEnhancement
             favImg.raycastTarget = false;
             favGo.SetActive(false); // 默认隐藏
 
+            // 模板返回前必须置 inactive。
+            // ItemListView.CreateEntry 用 Instantiate(_template, _content) 克隆，clone 继承模板的 active 状态；
+            // 而 _template.SetActive(false) 与首次 Rebuild() 都在增量构建循环**结束之后**才执行
+            // （ItemListView.BuildAllEntriesIncremental）。模板若是 active：
+            //   1) 首次打开面板时约 ceil(153/24)≈7 帧内，条目按数据库原始顺序逐批"闪入"（含本该被
+            //      HideUnused 过滤掉的项），最后一帧才因 Rebuild 突然全量重排；
+            //   2) 模板自身作为一张空白卡参与 Grid 布局，且带 PressFeedback，能被玩家按压变色。
+            // 置 inactive 后 clone 生成即隐藏，由 Rebuild 统一 SetActive(true)；模板不在 _all 里，
+            // 不会被 Rebuild 显示出来，与循环后的 _template.SetActive(false) 行为一致。
+            go.SetActive(false);
+
             return rt;
         }
 
@@ -517,11 +853,16 @@ namespace ItemSpawnerEnhancement
             const float cx = 32f;             // 心形中心 x（归一化坐标原点对应的像素）
             const float cy = 29f;             // 心形中心 y（略低于几何中心，为底部尖角留白）
             const float scale = 22f;          // 心形缩放（归一化单位 → 像素）
-            const float outlineHalf = 1.4f;   // 勾线描边半宽（像素），略收窄让描边更柔和自然
             const float lobeStrength = 0.6f;  // 两瓣强度（=1 为标准心形 V 槽深；<1 更圆润饱满、V 槽更浅、两侧更平滑）
 
             Color fill = new Color(0.86f, 0.32f, 0.34f, 1f); // 暖红填充（与原 favImg.color 一致）
             Color outline = ColorInkOutline;                  // 深暖棕勾线（与全局"勾线"色一致，手绘统一）
+            // 勾线描边半宽（像素），略收窄让描边更柔和自然。
+            // 透明风的 InkOutline 是全透明色：此时若仍保留 1.4px 的描边圈，
+            // 边界内侧一圈会被写成 alpha=0，等于把心形整体"腐蚀"掉 1.4px（视觉上更小且边缘发虚）。
+            // 故描边色透明时把描边宽度归零，让实心区域直达边界 —— 与滚动条 sprite 的既有做法一致
+            // （EnsureSprites 对滚动条传 outlineWidth=0 + Color.clear）。
+            float outlineHalf = (outline.a <= 0f) ? 0f : 1.4f;
 
             var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
             texture.name = "ItemSpawnerPremium Heart";
@@ -770,9 +1111,22 @@ namespace ItemSpawnerEnhancement
         {
             const int size = 64;
             const int samplesPerAxis = 4;
+            // 透明风（TransparentPalette 的 InkOutline / InnerHighlight 都是 alpha=0）下必须把描边宽度归零。
+            // 否则 SampleCard 会把 sd∈[-innerWidth,0) 与 sd∈[0,outlineWidth) 两圈写成全透明像素，
+            // 等于把实心区域从 RectTransform 边界向内"腐蚀"掉 innerWidth+outlineWidth
+            // （卡片 1.5+0.9=2.4px、面板 2.5+1.5=4.0px），观感是边缘发虚、面板比实际略小；
+            // 同时 pad 与 border 仍按有描边计算，9-slice 边框会包住一圈纯透明像素。
+            // 归零后两套样式的实心区域尺寸一致（仅余下方 pad 的 1px 抗锯齿边距，见 pad 注释）。
+            // 做法与滚动条/投影 sprite 的既有处理一致（EnsureSprites 对它们直接传 outlineWidth=0 + Color.clear）。
+            if (ink.a <= 0f && inner.a <= 0f)
+            {
+                outlineWidth = 0f;
+            }
             float innerWidth = outlineWidth * 0.6f; // 内描边宽度（约外描边 0.6）
             // 外描边留白：ink 外描边位于盒外 sd∈[0,outlineWidth]，必须在纹理四周留出该空间，
             // 否则直边外描边落在纹理外被裁掉（只圆角处可见），造成"圆角深棕、直边无分层"的突兀观感。
+            // +1f 的常数项即使在 outlineWidth==0（透明风/滚动条）时也保留：圆角边界需要至少 1px
+            // 让 4×4 超采样把边缘渐变写完整，pad=0 会让圆角外侧的半透明采样被纹理边界截断成硬边。
             float pad = outlineWidth + 1f;
             var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
             texture.name = name;
@@ -845,10 +1199,20 @@ namespace ItemSpawnerEnhancement
             return new Color(0f, 0f, 0f, 0f);        // 更外 → 透明
         }
 
-        /// <summary>语言切换时刷新分类按钮的文字与字体（按钮 label 在创建时按当时语言固化）。</summary>
+        /// <summary>语言切换时刷新分类按钮的文字、字体与大小写样式（按钮 label 在创建时按当时语言固化）。</summary>
         internal static void RefreshButtonLabels()
         {
+            // 这里**不要**清 _coverageProbed：覆盖探测的缓存键已是「语言 + 字体实例 ID」，
+            // 语言一变键就不匹配、自动重探，显式清除只会抵消缓存。
+            // 曾经加过 `_coverageProbed = false;`，实测导致一次语言切换探测两遍 ——
+            // ItemListView.OnLanguageChanged 的顺序是 RefreshFonts()（已探测并写入缓存）
+            // → RefreshButtonLabels()（把刚写入的缓存清掉，ResolveFont 再探一次），
+            // 结果是每次切语言多跑一遍 HasCharacters（探测串含 10 条文案 + 两种大写形态 + 变音字母表，
+            // 数百字符）并多刷一条"改用游戏主字体"日志（土耳其语实测连续两条）。
             TMP_FontAsset font = ResolveFont();
+            // 大小写样式随语言变化（俄/乌不全大写，见 CreateCategoryButton 注释）。
+            // 必须在这里同步更新：否则从英文切到俄语后 label 仍停留在创建时固化的 UpperCase。
+            FontStyles labelStyle = LocalizedText.languageSupportsAllCaps ? FontStyles.UpperCase : FontStyles.Normal;
             for (int i = 0; i < _categoryButtonLabels.Count; i++)
             {
                 TextMeshProUGUI label = _categoryButtonLabels[i];
@@ -865,8 +1229,9 @@ namespace ItemSpawnerEnhancement
                 {
                     label.font = font;
                 }
+                label.fontStyle = labelStyle;
             }
-            // 收藏按钮文字/字体随语言刷新
+            // 收藏按钮文字/字体/大小写随语言刷新
             if (_favoriteButtonLabel != null)
             {
                 _favoriteButtonLabel.text = Loc.Get("catFavorite");
@@ -874,6 +1239,7 @@ namespace ItemSpawnerEnhancement
                 {
                     _favoriteButtonLabel.font = font;
                 }
+                _favoriteButtonLabel.fontStyle = labelStyle;
             }
             // 右键收藏提示文字/字体随语言刷新
             if (_rightClickHint != null)
@@ -944,7 +1310,7 @@ namespace ItemSpawnerEnhancement
             rt.sizeDelta = new Vector2(-24f, 22f);
 
             TextMeshProUGUI text = go.GetComponent<TextMeshProUGUI>();
-            text.font = font;
+            ApplyFont(text, font);
             text.fontSize = 17f;
             text.fontStyle = FontStyles.Italic; // 斜体示意辅助提示（与搜索占位符一致）
             text.color = ColorHint;
@@ -993,12 +1359,21 @@ namespace ItemSpawnerEnhancement
             lrt.offsetMax = Vector2.zero;
 
             TextMeshProUGUI text = labelGo.GetComponent<TextMeshProUGUI>();
-            text.font = font;
+            ApplyFont(text, font);
             text.enableAutoSizing = true;
-            text.fontSizeMin = 14f;
+            // fontSizeMin 从 16 降到 11：8 个按钮由 childForceExpandWidth 均分「面板宽 × 0.9」，
+            // 1280×1024 下单按钮仅约 113px，而德语 "VERBRAUCHSOBJEKTE"(17 字符) @16pt 需约 150px。
+            // 给 autoSizing 更大的收缩空间，让它优先缩小字号而不是走省略号。
+            text.fontSizeMin = 11f;
             text.fontSizeMax = 22f;
             text.fontSize = 22f;
-            text.fontStyle = FontStyles.UpperCase;
+            // 必须显式设 Ellipsis：TMP 默认 overflowMode 是 Overflow，配合 NoWrap 时
+            // 缩到 fontSizeMin 仍装不下的标签会直接溢出画到相邻按钮上（德/波/土/意最长标签会重叠）。
+            text.overflowMode = TextOverflowModes.Ellipsis;
+            // 全大写只对「游戏认为支持全大写」的语言启用：反编译 LocalizedText.cs:129-139 的
+            // languageSupportsAllCaps 对 俄/乌/简中/繁中/日/韩 返回 false。CJK 无大小写本就不受影响，
+            // 但西里尔会被真的大写（Все → ВСЕ），与游戏其余 UI 的排版规范冲突。
+            text.fontStyle = LocalizedText.languageSupportsAllCaps ? FontStyles.UpperCase : FontStyles.Normal;
             text.alignment = TextAlignmentOptions.Center;
             text.textWrappingMode = TextWrappingModes.NoWrap;
             text.color = ColorTextIdle;
@@ -1093,14 +1468,24 @@ namespace ItemSpawnerEnhancement
             lrt.offsetMax = Vector2.zero;
 
             TextMeshProUGUI text = labelGo.GetComponent<TextMeshProUGUI>();
-            text.font = font;
+            ApplyFont(text, font);
             // 清晰锐利方案：不再用 Bold + 黑色 SDF 描边（二者会把字形边缘做软/膨胀，是模糊主因）。
-            // 改用「深暖棕文字 × 浅米棕底」的高对比 + 游戏原生的全大写 + 自适应字号（长英文标签自动缩小到 16，不裁剪）。
+            // 改用「深暖棕文字 × 浅米棕底」的高对比 + 游戏原生的全大写 + 自适应字号（长英文标签自动缩小，不裁剪）。
             text.enableAutoSizing = true;
-            text.fontSizeMin = 16f;
+            // fontSizeMin 从 16 降到 11：8 个按钮由 childForceExpandWidth 均分「面板宽 × 0.9」（spacing 6），
+            // 1280×1024（scale≈0.795）下单按钮仅约 113px，而德语 "VERBRAUCHSOBJEKTE"(17 字符) @16pt 需约 150px；
+            // 波兰 "WYPOSAŻENIE"、土耳其 "TÜKETİLEBİLİR"、意大利 "EQUIPAGGIAMENTO" 同样超宽。
+            // 降低下限让 autoSizing 优先缩小字号，把省略号当最后手段。
+            text.fontSizeMin = 11f;
             text.fontSizeMax = 22f;
             text.fontSize = 22f;
-            text.fontStyle = FontStyles.UpperCase; // 游戏按钮/标签为全大写（中文无大小写，不受影响）
+            // 必须显式设 Ellipsis：TMP 默认 overflowMode 是 Overflow，配合 NoWrap 时
+            // 缩到 fontSizeMin 仍装不下的标签会溢出到相邻按钮上，形成文字互相重叠。
+            text.overflowMode = TextOverflowModes.Ellipsis;
+            // 全大写只对「游戏认为支持全大写」的语言启用：反编译 LocalizedText.cs:129-139 的
+            // languageSupportsAllCaps 对 俄/乌/简中/繁中/日/韩 返回 false。CJK 无大小写本就不受影响，
+            // 但西里尔会被真的大写（Все → ВСЕ），与游戏其余 UI 的排版规范冲突。
+            text.fontStyle = LocalizedText.languageSupportsAllCaps ? FontStyles.UpperCase : FontStyles.Normal;
             text.alignment = TextAlignmentOptions.Center;
             text.textWrappingMode = TextWrappingModes.NoWrap; // 单行标签，避免长词折行
             text.color = ColorTextIdle;

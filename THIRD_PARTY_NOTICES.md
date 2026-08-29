@@ -4,7 +4,19 @@ This project bundles the following third-party components. Their copyright notic
 
 ## TinyPinyin (TinyPinyin.Net)
 
-Bundled into `ItemSpawnerPremium.dll` for pinyin search.
+Bundled into `ItemSpawnerPremium.dll` for pinyin search. Source files were vendored into
+`TinyPinyin/` (no NuGet reference); the upstream project publishes no version tags, so the
+snapshot is identified by its vendoring date: **2026-08-18, from the `master` branch of
+https://github.com/hstarorg/TinyPinyin.Net**.
+
+**Modified.** The vendored copy differs from upstream in two places:
+
+- `TinyPinyin/Engine.cs` — `GetPinyinByChar` now bounds-checks the decoded index against
+  `PinyinData.PINYIN_TABLE.Length` and falls back to the original character instead of throwing
+  `IndexOutOfRangeException`.
+- `TinyPinyin/PinyinHelper.cs` — `GetPinyinInitials` guards against empty segments produced by the
+  `|` separator (upstream issue
+  [hstarorg/TinyPinyin.Net#5](https://github.com/hstarorg/TinyPinyin.Net/issues/5)).
 
 Source: https://github.com/hstarorg/TinyPinyin.Net
 

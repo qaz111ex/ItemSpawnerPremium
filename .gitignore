@@ -3,3 +3,7 @@ obj/
 *.user
 .vs/
 *.userprefs
+# 发行 zip 是产物，不入库（dist/ 目录本身在仓库外）
+*.zip
+# package/ 是 manifest.json 与 icon.png 的权威副本，必须入库 —— 勿加入忽略规则
+!package/

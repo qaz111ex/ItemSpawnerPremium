@@ -1,0 +1,71 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    零 Unity / 零 BepInEx 依赖的单元测试工程。
+
+    为什么用源码链接（Compile Include）而不是引用模组 DLL：
+    模组 DLL 目标框架是 net472 且引用 UnityEngine / BepInEx / Assembly-CSharp，
+    在测试宿主里加载它会立刻需要整个 Unity 运行时。因此这里只把**不依赖 Unity 的源文件**
+    编进测试程序集，逐个显式列出 —— 谁被链接进来一目了然，也强制新增的纯逻辑文件必须
+    主动登记，避免有人把 Unity 依赖偷偷带进可测层。
+
+    主工程（..\..\ItemSpawnerEnhancement.csproj）已用 <Compile Remove="tests\**" />
+    排除本目录，因此测试代码不会被编进发行 DLL。
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>ItemSpawnerPremium.Tests</RootNamespace>
+    <AssemblyName>ItemSpawnerPremium.Tests</AssemblyName>
+    <!-- 被链接的源文件是按 C# 7.3 写的，这里不限制版本以免与测试代码冲突 -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- 本工程不需要 GameDir，屏蔽父级 Directory.Build.props 的校验 target -->
+    <SkipGameDirValidation>true</SkipGameDirValidation>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="NUnit" Version="4.4.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="5.1.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <!-- 被测的纯逻辑源文件（无 Unity / BepInEx 依赖） -->
+  <ItemGroup>
+    <Compile Include="..\..\SearchText.cs" Link="Linked\SearchText.cs" />
+    <Compile Include="..\..\SearchRanking.cs" Link="Linked\SearchRanking.cs" />
+    <Compile Include="..\..\ItemCatalog.cs" Link="Linked\ItemCatalog.cs" />
+    <Compile Include="..\..\ItemCatalogMethods.cs" Link="Linked\ItemCatalogMethods.cs" />
+    <Compile Include="..\..\FavoriteCodec.cs" Link="Linked\FavoriteCodec.cs" />
+    <Compile Include="..\..\Localization\Loc.cs" Link="Linked\Localization\Loc.cs" />
+    <Compile Include="..\..\Localization\LocalizationCatalog.cs" Link="Linked\Localization\LocalizationCatalog.cs" />
+    <Compile Include="..\..\TinyPinyin\Engine.cs" Link="Linked\TinyPinyin\Engine.cs" />
+    <Compile Include="..\..\TinyPinyin\PinyinHelper.cs" Link="Linked\TinyPinyin\PinyinHelper.cs" />
+    <Compile Include="..\..\TinyPinyin\Data\PinyinData.cs" Link="Linked\TinyPinyin\Data\PinyinData.cs" />
+    <Compile Include="..\..\TinyPinyin\Data\PinyinCode1.cs" Link="Linked\TinyPinyin\Data\PinyinCode1.cs" />
+    <Compile Include="..\..\TinyPinyin\Data\PinyinCode2.cs" Link="Linked\TinyPinyin\Data\PinyinCode2.cs" />
+    <Compile Include="..\..\TinyPinyin\Data\PinyinCode3.cs" Link="Linked\TinyPinyin\Data\PinyinCode3.cs" />
+  </ItemGroup>
+
+  <!--
+    以与发行 DLL 相同的资源名格式内嵌 15 个语言 JSON，使 LocalizationCatalog 的
+    marker 解析（".Localization."）、白名单过滤与英文回退链能被真实测试到，
+    而不是只测一个手写的假 catalog。
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\Localization\*.json">
+      <LogicalName>ItemSpawnerPremium.Tests.Localization.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!-- 供测试断言用的原始 JSON 路径（不参与编译，仅拷到输出目录做文件级校验） -->
+  <ItemGroup>
+    <None Include="..\..\Localization\*.json"
+          Link="LocalizationFiles\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

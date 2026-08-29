@@ -36,8 +36,17 @@ namespace ItemSpawnerEnhancement
         /// <summary>物品 prefab 名 -> 全部标签（Flags）。主分类由 ItemCatalog.PrimaryOfTags 运行时推导。</summary>
         public static readonly Dictionary<string, ItemCategory> ItemTagMap = new Dictionary<string, ItemCategory>(System.StringComparer.OrdinalIgnoreCase)
         {
-            // 分类依据：游戏资源真值提取（item_truth.json）——itemTags / totalUses / 子树全部组件。
-            // 消耗品 = totalUses>0（有使用次数）或 Action_Consume（一次性用完消失），食物除外。
+            // 分类依据：游戏资源真值提取（item_truth.json）——itemTags / totalUses / 子树全部组件，
+            // 再叠加人工语义判断。**本表是人工维护的语义结论，判定标准与
+            // ItemListView.ResolveCategories 的机械组件兜底标准不同**，后续维护者不要按兜底规则重算本表。
+            //
+            // Consumables 的实际标准是「使用后物品本体消失」，覆盖三类，其中后两类无法从静态资源推出：
+            //   a) 次数耗尽：totalUses>0 或 Action_ReduceUses（如 Sunscreen 3 次、ScoutCookies 4 次）；
+            //   b) 燃料耗尽后 photonView.RPC("Consume", ...)：Torch/Lantern/Candle/RopeSpool/Anti-Rope Spool
+            //      在真值里 totalUses=-1 且 actions 不含 Action_Consume，是运行时燃料逻辑触发的销毁；
+            //   c) 投掷/触发后自毁：HealingPuffShroom（砸地碎裂）、Parachute（落地后 Consume）、
+            //      Rocketpack（燃尽爆炸）、MagicBean（种下后本体销毁）等 ConsumeDelayed/自毁族。
+            // 因此表中带 Consumables 的条目不一定满足 totalUses>0 || Action_Consume，反之亦然。
             { "Airplane Food", ItemCategory.Food },
             { "AK", ItemCategory.Props },
             { "AloeVera", ItemCategory.Consumables },
@@ -245,7 +254,14 @@ namespace ItemSpawnerEnhancement
             "foodTest",
         };
 
-        /// <summary>需要隐藏的前缀（棋子等装饰物）。</summary>
+        /// <summary>
+        /// 需要隐藏的前缀（棋子等装饰物）。
+        /// 注意 "GuidebookPage" 会连带隐藏 "GuidebookPageScroll Variant"（itemName=Scroll，
+        /// 带 Action_SpawnGuidebookPage、实际可用的道具）—— 这是**有意为之的产品决策**：
+        /// 该道具与 Guidebook 功能重叠且属于收集流程内部物件，不进目录。
+        /// 后续维护者请不要把它当 bug「修复」；若确需放出，应加白名单而非改前缀规则
+        /// （改前缀会连带放出真正的装饰用 GuidebookPage* 资源）。
+        /// </summary>
         public static readonly string[] HiddenPrefixes = new string[]
         {
             "C_Bishop",

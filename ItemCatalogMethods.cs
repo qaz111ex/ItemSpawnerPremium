@@ -54,6 +54,8 @@ namespace ItemSpawnerEnhancement
             switch (major)
             {
                 case MajorCategory.All:
+                    // 防御性判断：ResolveCategories 保证 tags 至少为 Props（末尾兜底），
+                    // 静态表 153 条也没有 None，所以此处实际恒真；保留以防未来新增构造路径漏兜底。
                     return tags != ItemCategory.None;
                 case MajorCategory.Tools:
                     return (tags & ItemCategory.Tools) != 0;
@@ -68,23 +70,32 @@ namespace ItemSpawnerEnhancement
                 case MajorCategory.Props:
                     return (tags & ItemCategory.Props) != 0;
                 default:
-                    return true;
+                    // 未知/非法 MajorCategory（如强转的哨兵值）返回 false 而非 true：
+                    // 「一个都不匹配」会立刻表现为空列表，比「全部通过」这种看似正常的静默错误更容易被发现。
+                    // 现有调用点传入的都是 0..6 的合法枚举值，因此本分支不影响既有行为。
+                    return false;
             }
         }
+
+        /// <summary>
+        /// 主分类推导顺序（位值从小到大，即排序优先级从高到低）。
+        /// 提为静态只读字段：PrimaryOfTags 在目录构建/语言切换时对每个物品调用，
+        /// 每次 new 数组是纯粹的无谓分配。
+        /// </summary>
+        private static readonly ItemCategory[] PrimaryOrder = new ItemCategory[]
+        {
+            ItemCategory.Tools, ItemCategory.Food, ItemCategory.Mystical,
+            ItemCategory.Equipment, ItemCategory.Consumables, ItemCategory.Props,
+        };
 
         /// <summary>从标签集合中取主分类（位值最小者，即排序优先级最高）。</summary>
         public static ItemCategory PrimaryOfTags(ItemCategory tags)
         {
-            ItemCategory[] order = new ItemCategory[]
+            for (int i = 0; i < PrimaryOrder.Length; i++)
             {
-                ItemCategory.Tools, ItemCategory.Food, ItemCategory.Mystical,
-                ItemCategory.Equipment, ItemCategory.Consumables, ItemCategory.Props,
-            };
-            for (int i = 0; i < order.Length; i++)
-            {
-                if ((tags & order[i]) != 0)
+                if ((tags & PrimaryOrder[i]) != 0)
                 {
-                    return order[i];
+                    return PrimaryOrder[i];
                 }
             }
             return ItemCategory.Props;

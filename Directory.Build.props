@@ -1,6 +1,20 @@
 <Project>
   <PropertyGroup>
-    <!-- PEAK 游戏根目录：换机器/换安装路径只需改这一处 -->
-    <GameDir>D:\SteamLibrary\steamapps\common\PEAK</GameDir>
+    <!-- PEAK 游戏根目录（含 BepInEx 与 PEAK_Data 的那一层）。
+         优先级：命令行 -p:GameDir=... / 环境变量 GameDir > 这里的默认值。
+         换机器时不必改本文件，设环境变量或传参即可，避免每台机器都产生本地修改。 -->
+    <GameDir Condition="'$(GameDir)' == ''">D:\SteamLibrary\steamapps\common\PEAK</GameDir>
   </PropertyGroup>
+
+  <!-- GameDir 不正确时，MSBuild 只会喷出一大堆 CS0246（找不到类型），根因极难定位。
+       这里在解析引用之前先做一次存在性检查，直接给出可操作的提示。
+       tests\ 下的测试工程零 Unity 依赖、不需要游戏程序集，用 SkipGameDirValidation=true 跳过，
+       否则在没装 PEAK 的机器上连纯逻辑测试都跑不起来。 -->
+  <Target Name="ValidateGameDir" BeforeTargets="ResolveAssemblyReferences"
+          Condition="'$(SkipGameDirValidation)' != 'true'">
+    <Error Condition="!Exists('$(GameDir)\PEAK_Data\Managed')"
+           Text="GameDir 无效：找不到 &quot;$(GameDir)\PEAK_Data\Managed&quot;。请把 GameDir 指向 PEAK 游戏根目录（含 BepInEx 与 PEAK_Data 的那一层）。三种方式任选其一：(1) 命令行 dotnet build -p:GameDir=&quot;X:\path\to\PEAK&quot;；(2) 设置环境变量 GameDir；(3) 修改 Directory.Build.props 里的默认值。 / Invalid GameDir: &quot;$(GameDir)\PEAK_Data\Managed&quot; not found. Point GameDir at your PEAK install root (the folder containing BepInEx and PEAK_Data) via -p:GameDir=..., the GameDir environment variable, or the default in Directory.Build.props." />
+    <Error Condition="Exists('$(GameDir)\PEAK_Data\Managed') And !Exists('$(GameDir)\BepInEx\core\BepInEx.dll')"
+           Text="在 &quot;$(GameDir)&quot; 下找到了 PEAK_Data\Managed，但缺少 BepInEx\core\BepInEx.dll。请先安装 BepInExPack_PEAK 再构建。 / Found PEAK_Data\Managed under &quot;$(GameDir)&quot; but BepInEx\core\BepInEx.dll is missing. Install BepInExPack_PEAK first." />
+  </Target>
 </Project>

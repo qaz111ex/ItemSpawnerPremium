@@ -23,6 +23,14 @@ namespace ItemSpawnerEnhancement
 
         public void OnPointerDown(PointerEventData eventData)
         {
+            // 只对左键（=生成物品的那个键）给按下反馈：右键是收藏操作，
+            // 不应该出现"卡片被按下"的压暗动画。
+            // 注意 OnPointerUp / OnPointerExit / OnDisable 三条恢复路径都刻意不加按键判定：
+            // 左键按下、右键松开这类边缘情况下，若恢复路径也过滤按键，卡片会永久卡在压暗态。
+            if (eventData.button != PointerEventData.InputButton.Left)
+            {
+                return;
+            }
             if (_image != null)
             {
                 _image.color = PressedColor;

@@ -16,6 +16,13 @@ namespace ItemSpawnerEnhancement
 
         public void OnPointerClick(PointerEventData eventData)
         {
+            // 拖拽结束时不触发收藏：EventSystem 在拖拽后仍会派发 OnPointerClick（只要按下与松开在同一对象上），
+            // 玩家按住右键滚动/拖动列表后松手，会被误判成一次"右键点击"而切换收藏状态。
+            // PointerEventData.dragging 在拖拽进行中为 true（UnityEngine.UI 的 PointerEventData 属性，已确认存在）。
+            if (eventData.dragging)
+            {
+                return;
+            }
             if (eventData.button == PointerEventData.InputButton.Right && _onFavorite != null)
             {
                 _onFavorite();
