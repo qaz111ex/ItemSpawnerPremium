@@ -8,7 +8,7 @@
     <!-- 与 BepInPlugin 版本保持一致，便于从程序集属性排查线上版本。
          改版本时必须同步四处：本处、Plugin.cs 的 [BepInPlugin]、package\manifest.json、CHANGELOG.md。
          pack.ps1 会强制校验四处一致，不一致直接拒绝打包。 -->
-    <Version>2.2.0</Version>
+    <Version>2.3.0</Version>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <!-- 必须按配置分目录：曾经统一输出到 bin\，Debug 与 Release 互相覆盖，
@@ -51,13 +51,19 @@
       <HintPath>$(GameDir)\PEAK_Data\Managed\Zorro.Core.Runtime.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- InputHandler.GetCurrentUsedInputScheme()：用于区分键鼠/手柄，决定打开面板时把焦点给
+         搜索框还是给第一个分类按钮（手柄下 TMP_InputField 激活后会吞掉全部方向导航）。 -->
+    <Reference Include="Zorro.ControllerSupport">
+      <HintPath>$(GameDir)\PEAK_Data\Managed\Zorro.ControllerSupport.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="PhotonUnityNetworking">
       <HintPath>$(GameDir)\PEAK_Data\Managed\PhotonUnityNetworking.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <!-- 【间接必需，勿删】本模组不直接写 UnityEngine.dll 里的类型，但该程序集承载
          MonoBehaviour 等类型的**类型转发**（type forward）到 CoreModule。
-         删除后编译报 15 个 CS0012（"类型在未引用的程序集中定义"）。已因误删踩坑过。 -->
+         删除后编译报 19 个 CS0012（"类型在未引用的程序集中定义"）。已因误删踩坑过。 -->
     <Reference Include="UnityEngine">
       <HintPath>$(GameDir)\PEAK_Data\Managed\UnityEngine.dll</HintPath>
       <Private>false</Private>
@@ -104,8 +110,11 @@
   </ItemGroup>
 
   <!-- 测试工程独立存在于 tests\ 下（net8.0 + NUnit，零 Unity 依赖）。
-       本工程是 SDK 风格，默认递归 glob **\*.cs，若不排除会把测试代码编进模组 DLL
-       （既引入 NUnit 依赖，又让 BepInEx 加载无用类型）。tests\ 也不应被 Localization 资源规则波及。 -->
+       Compile Remove 是**真必需**：本工程是 SDK 风格、默认递归 glob **\*.cs，
+       不排除的话测试代码会被编进模组 DLL（实测删掉这一行会产生 498 个 CS0246）。
+       另两条是前瞻性防御：EmbeddedResource 的默认 glob 只含 **\*.resx（tests\ 下目前没有），
+       None 不影响 DLL 内容 —— 实测删掉这两条后产物逐字节相同。留着是为了将来在 tests\
+       放 resx 或数据文件时不会意外被打进发行 DLL。 -->
   <ItemGroup>
     <Compile Remove="tests\**" />
     <EmbeddedResource Remove="tests\**" />

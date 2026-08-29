@@ -7,6 +7,6 @@
   "catConsumables": "Витратні",
   "catProps": "Інше",
   "searchPlaceholder": "Пошук предметів...",
-  "catFavorite": "Обрані",
-  "rightClickHint": "ПКМ — додати в обране"
+  "catFavorite": "Вибране",
+  "rightClickHint": "ПКМ — додати у вибране"
 }

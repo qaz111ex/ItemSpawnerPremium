@@ -1,0 +1,14 @@
+# 统一行尾，避免「同一文件在不同机器上 diff 出整文件改动」。
+# 历史问题：ItemCatalog.cs 曾是 CRLF/LF 混行（生成器写 CRLF、手工编辑的数据块是 LF），
+# 精确对应到手工改过的区间，除了噪声没有任何意义。
+* text=auto eol=lf
+
+# 第三方 vendored 代码保持上游原样（含 UTF-8 BOM 与 CRLF），
+# 便于与上游 blob 逐字节比对确认本地修改范围。
+# 注意：git 仓库顶层就是 src/，所以这里不带 src/ 前缀。
+TinyPinyin/** -text
+
+# 二进制
+*.png binary
+*.dll binary
+*.zip binary

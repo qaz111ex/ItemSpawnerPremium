@@ -383,15 +383,22 @@ namespace ItemSpawnerEnhancement
                     return text;
                 }
             }
-            // 2) 补充自定义名称（游戏本地化表完全没有的物品，如太空篮球/风之杖）
-            string[] custom;
-            if (ItemCatalog.ExtraCustomNames.TryGetValue(prefab, out custom) && custom != null && custom.Length >= 1)
+            // 2) 补充自定义名称（游戏本地化表完全没有 NAME_ key 的物品，如传送篮球/攀岩粉）。
+            //    按当前语言码取值，缺该语言则回退英文 —— 2.2.0 的旧结构是 [中文, 英文] 两元组，
+            //    导致这些物品在日/韩/俄/乌/德/法/意/西/葡/波/土 下全显示英文名，
+            //    在一屏母语物品里格外突兀。
+            Dictionary<string, string> custom;
+            if (ItemCatalog.ExtraCustomNames.TryGetValue(prefab, out custom) && custom != null)
             {
-                if (IsChineseLanguage())
+                string byLanguage;
+                if (custom.TryGetValue(GameLanguage.CurrentCode, out byLanguage) && !string.IsNullOrEmpty(byLanguage))
                 {
-                    return custom[0];
+                    return byLanguage;
                 }
-                return (custom.Length >= 2 && !string.IsNullOrEmpty(custom[1])) ? custom[1] : custom[0];
+                if (custom.TryGetValue("en", out byLanguage) && !string.IsNullOrEmpty(byLanguage))
+                {
+                    return byLanguage;
+                }
             }
             // 3) 游戏本地化名（基于 Item.UIData.itemName 的动态解析，兼容所有版本物品与语言）
             if (item != null && item.UIData != null)
@@ -453,8 +460,11 @@ namespace ItemSpawnerEnhancement
                 if ((itags & Item.ItemTags.Mystical) != 0
                     || (itags & Item.ItemTags.GoldenIdol) != 0
                     || (itags & Item.ItemTags.BookOfBones) != 0
-                    || (itags & Item.ItemTags.ScoutAmulet) != 0)
+                    || (itags & Item.ItemTags.ScoutAmulet) != 0
+                    || (itags & Item.ItemTags.BingBong) != 0)
                 {
+                    // BingBong 也算神秘：它是"许愿"机制（Action_AskBingBong），
+                    // 真值里的 2 个持有者都已在静态表里，补这一位是为了让模组新增的同类物品不落到杂项。
                     tags |= ItemCategory.Mystical;
                 }
                 // 食物 itemTags 除 PackagedFood/Berry/Mushroom 外，还必须认 Bird 与 GourmandRequirement：
@@ -488,20 +498,28 @@ namespace ItemSpawnerEnhancement
                 }
             }
 
-            // 3) prefab 名特征
-            if (prefab.IndexOf("Shroom", StringComparison.OrdinalIgnoreCase) >= 0
-                || prefab.IndexOf("Mushroom", StringComparison.OrdinalIgnoreCase) >= 0
-                || prefab.IndexOf("Berry", StringComparison.OrdinalIgnoreCase) >= 0)
+            // 3) prefab 名特征 —— **只在前两步一无所获时才启用**。
+            // 名字是最弱的证据：`GuidebookPage_1_Mushrooms` 是一页图鉴（itemClass=Guidebook，
+            // 组件里只有 Action_Guidebook），名含 "Mushroom" 就被推成食物；旧实现无条件 `|=`，
+            // 于是即便第 2 步已经从组件拿到了确定结论，名字仍会往上叠加一个错标签。
+            // 收紧为"兜底的兜底"后，有组件证据的物品不再受名字干扰，而纯靠名字识别的
+            // 模组新物品（Xxx_Berry / Xxx_Rope 之类）仍能被归到合理分类。
+            if (tags == ItemCategory.None)
             {
-                tags |= ItemCategory.Food;
-            }
-            if (prefab.IndexOf("Rope", StringComparison.OrdinalIgnoreCase) >= 0
-                || prefab.IndexOf("Spike", StringComparison.OrdinalIgnoreCase) >= 0
-                || prefab.IndexOf("Spool", StringComparison.OrdinalIgnoreCase) >= 0
-                || prefab.IndexOf("Cannon", StringComparison.OrdinalIgnoreCase) >= 0
-                || prefab.IndexOf("Shooter", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                tags |= ItemCategory.Tools;
+                if (prefab.IndexOf("Shroom", StringComparison.OrdinalIgnoreCase) >= 0
+                    || prefab.IndexOf("Mushroom", StringComparison.OrdinalIgnoreCase) >= 0
+                    || prefab.IndexOf("Berry", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    tags |= ItemCategory.Food;
+                }
+                if (prefab.IndexOf("Rope", StringComparison.OrdinalIgnoreCase) >= 0
+                    || prefab.IndexOf("Spike", StringComparison.OrdinalIgnoreCase) >= 0
+                    || prefab.IndexOf("Spool", StringComparison.OrdinalIgnoreCase) >= 0
+                    || prefab.IndexOf("Cannon", StringComparison.OrdinalIgnoreCase) >= 0
+                    || prefab.IndexOf("Shooter", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    tags |= ItemCategory.Tools;
+                }
             }
 
             // 兜底：未知物品归入"杂项"
@@ -523,11 +541,9 @@ namespace ItemSpawnerEnhancement
 
         /// <summary>
         /// 取当前语言应使用的字体。统一委托给 <see cref="UiEnhancer.ResolveFont"/>，
-        /// **不能自己用 `NeedsCjkFont() ? _fontCjk : _fontLatin` 判断**：
-        /// UiEnhancer 在 2.2.0 增加了「装饰字体字符覆盖探测」，波兰语/土耳其语等拉丁扩展语言下
-        /// 会降级到游戏主字体；若这里还按老逻辑直接取 _fontLatin（未经探测的装饰字体），
-        /// 就会出现「按钮标签正常、物品名与搜索框仍是方块」的半修复状态。
-        /// UiEnhancer 侧已对装饰字体查询与覆盖探测做了静态缓存，重复调用不产生额外开销。
+        /// **不能在这里自行挑字体**：字体决策必须只有一个入口，否则 UiEnhancer 构建的节点
+        /// （按钮标签、提示文字）与本类动态刷新的节点（物品名、搜索框文字/占位符）会得出不同结论。
+        /// UiEnhancer 侧已做静态缓存，重复调用不产生额外开销。
         /// </summary>
         private static TMP_FontAsset ResolveCurrentFont()
         {
@@ -579,6 +595,10 @@ namespace ItemSpawnerEnhancement
                 RawImage icon = iconTrans.GetComponent<RawImage>();
                 if (icon != null && entry.item.UIData != null)
                 {
+                    // 少数物品的 UIData.icon 是空引用，此时 RawImage.mainTexture 返回
+                    // Graphic.s_WhiteTexture，卡片上是一个白色方块。**这是有意保留的**：
+                    // 白方块占住图标位置、看得出"这里应该有图标"，比整块空白更容易辨认；
+                    // 而且游戏更新给这些物品补上图标后，这里无需改动就会自动显示出来。
                     icon.texture = ResolveIconTexture(entry.item.UIData);
                 }
             }
@@ -803,8 +823,8 @@ namespace ItemSpawnerEnhancement
                 if (nameText != null)
                 {
                     nameText.text = entry.displayName;   // TMP 的 text setter 自带相等短路，无需手动比较
-                    // font setter 没有相等短路，赋同一个值也会 SetAllDirty() 强制重建该文本 mesh，
-                    // 因此必须自己判等：字体只在语言切换时变，按键搜索时这里恒为 false。
+                    // font setter 也自带相等短路（TMP_Text.cs:700-711 的 `if (!(m_fontAsset == value))`），
+                    // 这里的判等只是省掉一次属性调用；保留是因为它同时兼作 null 守卫。
                     if (font != null && nameText.font != font)
                     {
                         nameText.font = font;
@@ -887,7 +907,7 @@ namespace ItemSpawnerEnhancement
             }
             catch (Exception ex)
             {
-                Plugin.Log.LogError("ItemSpawner Enhancement failed to spawn " + item.gameObject.name + ": " + ex);
+                Plugin.Log.LogError("ItemSpawnerPremium: 生成物品失败 " + item.gameObject.name + ": " + ex);
             }
         }
 
@@ -910,14 +930,16 @@ namespace ItemSpawnerEnhancement
         }
 
         /// <summary>
-        /// 当前语言是否需要游戏主字体（而非拉丁装饰字体）。
-        /// 除简/繁/日/韩（CJK 字形）外，俄语/乌克兰语（西里尔字母）也必须用主字体：
-        /// DarumaDropOne 是日系手绘装饰字体，其拉丁子集不含西里尔字形，直接使用会渲染成方块。
+        /// 当前语言是否需要 CJK / 西里尔字形（而非仅基本拉丁）。
+        ///
+        /// 用途只剩一处：<see cref="UiEnhancer.Setup"/> 的就绪防线 —— 这些字形只能来自
+        /// FontFallbackSwapper.mainBaseFont 的 fallback 链，若 swapper 尚未 Awake 就建面板，
+        /// 会落到末端兜底 LiberationSans SDF（实测静态表 250 个码点、fallback 表仅 1 项，
+        /// 既无西里尔也无 CJK），而字体只在 Init / OnLanguageChanged 时重解析，
+        /// 于是这些语言的玩家会看到**永久**方块。
         /// </summary>
         public static bool NeedsCjkFont()
         {
-            // 简体/繁体/日文/韩文需 CJK 字形（游戏 SetLanguage 对中文切换 fallback）；
-            // 俄语/乌克兰语需西里尔字形，两者都只有游戏主字体（含 fallback 链）能覆盖。
             LocalizedText.Language language = LocalizedText.CURRENT_LANGUAGE;
             return language == LocalizedText.Language.SimplifiedChinese
                 || language == LocalizedText.Language.TraditionalChinese
@@ -927,10 +949,12 @@ namespace ItemSpawnerEnhancement
                 || language == LocalizedText.Language.Ukrainian;
         }
 
-        /// <summary>当前语言是否为中文（仅简/繁），用于中文文案分支（按钮标签与 ExtraCustomNames 自定义名）。</summary>
+        /// <summary>
+        /// 当前语言是否为中文（仅简/繁），用于决定拼音搜索档位是否参与打分。
+        /// 日/韩玩家不启用拼音（他们不会用汉语拼音检索）。
+        /// </summary>
         public static bool IsChineseLanguage()
         {
-            // 仅简体/繁体返回 true；日/韩玩家使用英文文案，但字体仍需 CJK（见 NeedsCjkFont）
             LocalizedText.Language language = LocalizedText.CURRENT_LANGUAGE;
             return language == LocalizedText.Language.SimplifiedChinese
                 || language == LocalizedText.Language.TraditionalChinese;
@@ -953,25 +977,52 @@ namespace ItemSpawnerEnhancement
             return null;
         }
 
-        /// <summary>获取游戏主 UI 字体（带中文 fallback，用于 CJK 显示）。</summary>
+        /// <summary>
+        /// 界面字体的静态缓存。<see cref="GetGameBaseFont"/> 是按键热路径的一部分
+        /// （Rebuild 每次输入都会调 ResolveFont → 本方法），而其兜底分支里的
+        /// <see cref="FindFont"/> 是 Resources.FindObjectsOfTypeAll&lt;TMP_FontAsset&gt;() 全量遍历，
+        /// 在 PEAK 的已加载对象量级下单次可达数十毫秒，绝不能每次按键都跑。
+        ///
+        /// TMP_FontAsset 继承 UnityEngine.Object，其 == null 同时覆盖「从未查到」与
+        /// 「查到后资源被卸载/销毁」，后者必须重查（字体资源可能随场景卸载后又被重新加载），
+        /// 所以这里只缓存成功结果、不做负缓存。
+        /// </summary>
+        private static TMP_FontAsset _baseFontCache;
+
+        /// <summary>
+        /// 获取游戏 UI 主字体。
+        ///
+        /// 首选 FontFallbackSwapper.mainBaseFont —— 实测它指向 DarumaDropOne-Regular SDF，
+        /// 且其 fallbackFontAssetTable 覆盖简繁日韩与西里尔/拉丁扩展（详见 UiEnhancer.ResolveFont 的说明），
+        /// 是唯一能显示全部 15 种游戏语言的字体。
+        ///
+        /// 兜底链只保留两级：
+        ///   1) 直接按名查 DarumaDropOne-Regular SDF —— swapper 未 Awake 但字体资源已加载时可用
+        ///      （正常情况下与 mainBaseFont 是同一实例）；
+        ///   2) LiberationSans SDF —— Unity/TMP 内置，仅基本拉丁。最后的救命稻草，
+        ///      CJK/西里尔语言下 UiEnhancer.Setup 会拒绝用它建面板。
+        /// 原先链首还有 FindFont("Muli SDF") / FindFont("Muli") 两级：实测全游戏 16 个
+        /// TMP_FontAsset 中无此名（"Muli" 只是 LocalizedText.defaultHeaderName 这个未被使用的
+        /// 私有常量），两次全量遍历必定空转，2.3.0 已删除。
+        /// </summary>
         public static TMP_FontAsset GetGameBaseFont()
         {
+            if (_baseFontCache != null)
+            {
+                return _baseFontCache;
+            }
             if (FontFallbackSwapper.instance != null && FontFallbackSwapper.instance.mainBaseFont != null)
             {
-                return FontFallbackSwapper.instance.mainBaseFont;
+                _baseFontCache = FontFallbackSwapper.instance.mainBaseFont;
+                return _baseFontCache;
             }
-            // TMP 字体资源名惯例带 " SDF" 后缀（如 "Muli SDF"），"Muli" 为 LocalizedText 的基名
-            TMP_FontAsset muli = FindFont("Muli SDF");
-            if (muli != null)
+            _baseFontCache = FindFont("DarumaDropOne-Regular SDF");
+            if (_baseFontCache != null)
             {
-                return muli;
+                return _baseFontCache;
             }
-            muli = FindFont("Muli");
-            if (muli != null)
-            {
-                return muli;
-            }
-            return FindFont("LiberationSans SDF");
+            _baseFontCache = FindFont("LiberationSans SDF");
+            return _baseFontCache;
         }
     }
 }

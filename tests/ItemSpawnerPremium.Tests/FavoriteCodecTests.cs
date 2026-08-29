@@ -231,6 +231,20 @@ namespace ItemSpawnerPremium.Tests
             Assert.That(source.Contains("Candle"), Is.False);
         }
 
+        [Test]
+        public void CopySet_NullSourceThrows_DocumentingCurrentBehaviour()
+        {
+            // 记录现状而非"修复"：CopySet 直接把 source 交给 HashSet 构造函数，null 会抛
+            // ArgumentNullException。当前全部调用点（FavoriteStore 的 write-ahead 路径、
+            // FindStale）都已判过空，所以这个分支不可达。
+            //
+            // 之所以仍然写这条断言：把"不可达"固化成可执行的文档。将来若有人新增一个可能传 null
+            // 的调用点，这条测试不会失败（它断言的就是抛），但读到它的人会立刻知道 CopySet
+            // 没有空值兜底、责任在调用方 —— 而不是想当然地以为它会返回空集合。
+            Assert.That(delegate { FavoriteCodec.CopySet(null); },
+                Throws.TypeOf<ArgumentNullException>());
+        }
+
         // ---------- FindStale ----------
 
         [Test]

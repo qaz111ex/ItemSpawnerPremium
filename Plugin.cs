@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace ItemSpawnerEnhancement
 {
-    [BepInPlugin("com.itemspawnerpremium.ItemSpawnerPremium", "ItemSpawnerPremium", "2.2.0")]
+    [BepInPlugin("com.itemspawnerpremium.ItemSpawnerPremium", "ItemSpawnerPremium", "2.3.0")]
     public class Plugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log { get; private set; }
@@ -39,6 +39,20 @@ namespace ItemSpawnerEnhancement
         /// volatile：回调可能来自非主线程（见下方 SettingChanged 注释），保证主线程能立即观察到写入。
         /// </summary>
         internal static volatile bool StyleChangeRequested;
+
+        /// <summary>
+        /// 物品隐藏开关变更请求标志。与 <see cref="StyleChangeRequested"/> 同理由，
+        /// 由 Config 回调置位、Warmup.Update（主线程）消费。
+        ///
+        /// 为什么连 GetComponent 都不能放在回调里：BepInEx 的 SettingChanged 在**调用方线程**
+        /// 同步派发（ConfigEntry.Value setter → ConfigFile.OnSettingChanged，同栈帧遍历
+        /// invocation list 直接调用 handler）。`Window != null` 是 UnityEngine.Object 的重载
+        /// 运算符（进入原生 IsNativeObjectAlive）、`GetComponent<T>()` 是纯原生调用 ——
+        /// 两者都是主线程专属。旧实现的注释写着"只置标志"，实际却做了这两次 Unity 调用，
+        /// 与它自己声明的安全口径不符。现在两个回调都只写一个 volatile bool，口径统一。
+        /// </summary>
+        internal static volatile bool HideUnusedChangeRequested;
+
 
         private static ConfigEntry<KeyCode> _toggleKey;
         private static ConfigEntry<string> _styleEntry;
@@ -89,13 +103,9 @@ namespace ItemSpawnerEnhancement
                 "隐藏装饰/测试/无用物品（棋子、撕下的书页等）。设为 false 显示全部物品。");
             _hideUnused.SettingChanged += delegate
             {
-                ItemListView view = (Window != null) ? Window.GetComponent<ItemListView>() : null;
-                if (view != null)
-                {
-                    // 只置标志：BepInEx 的 SettingChanged 在调用方线程同步派发，
-                    // 直接做 Destroy/StartCoroutine 在非主线程会抛异常；由 ItemListView.Update 在主线程消费。
-                    view.RequestRefresh();
-                }
+                // 只写一个 volatile bool，绝不触碰任何 Unity API（连 GetComponent 都不行，
+                // 理由见 HideUnusedChangeRequested 的注释）。由 Warmup.Update 在主线程消费。
+                HideUnusedChangeRequested = true;
             };
 
             Favorites = new FavoriteStore(Config.Bind<string>("Favorites", "ItemNames", "[]",
@@ -139,7 +149,38 @@ namespace ItemSpawnerEnhancement
         /// <summary>每帧轮询 ToggleKey，触发窗口显隐切换。</summary>
         private void Update()
         {
+            // 整个方法体包一层 try/catch：这是本模组进入 Unity 每帧调用栈的边界之一。
+            // 若这里抛出，Unity 会每帧记一条**不带本模组前缀**的异常，且 Update 每帧在同一行断掉
+            // → F5 从此彻底失效，而玩家/排障者很难把日志归因到本插件。
+            // 捕获后置位 _updateFaulted 停止后续轮询，只留一条带前缀的 Error，避免刷屏。
+            if (_updateFaulted)
+            {
+                return;
+            }
+            try
+            {
+                PollToggleKey();
+            }
+            catch (Exception ex)
+            {
+                _updateFaulted = true;
+                Log.LogError("ItemSpawnerPremium: 按键轮询异常，已停止轮询（重启游戏可恢复）: " + ex);
+            }
+        }
+
+        /// <summary>Update 抛异常后置位，停止后续轮询避免每帧刷屏。</summary>
+        private bool _updateFaulted;
+
+        private void PollToggleKey()
+        {
             if (Window == null || _toggleKey == null || _toggleKey.Value == KeyCode.None)
+            {
+                return;
+            }
+            // 加载屏期间不响应开关：加载中生成会被 Spawn 拒绝，而 Warmup 每 0.5 秒轮询一次
+            // 也会把加载屏期间打开的面板强行收起 —— 玩家看到的是"按了 F5 面板闪一下又没了"，
+            // 像是 F5 失灵。把"加载中不开面板"收敛到这一个决策点，比开了再被另一个组件收回更干净。
+            if (LoadingScreenHandler.loading)
             {
                 return;
             }
@@ -152,7 +193,7 @@ namespace ItemSpawnerEnhancement
             // 就再也关不掉，必须先点一下按钮或拖一下滚动条让输入框失焦"。这是 2.2.0 引入的回归，
             // 根因是把「防误吞文本键」写成了「屏蔽全部按键」。F5 等功能键不参与文本输入，必须放行。
             if (Window.isOpen
-                && IsTextInputKey(_toggleKey.Value)
+                && InputKeys.IsTextInput((int)_toggleKey.Value)
                 && Window.searchInput != null
                 && Window.searchInput.isFocused)
             {
@@ -194,79 +235,6 @@ namespace ItemSpawnerEnhancement
             GameObject go = new GameObject("ItemSpawnerPremium", typeof(RectTransform));
             UnityEngine.Object.DontDestroyOnLoad(go);
             Window = go.AddComponent<ItemSpawnerPremiumWindow>();
-        }
-
-        /// <summary>
-        /// 该按键在文本输入框聚焦时是否会被当作文本吃掉（即需要让给输入框的按键）。
-        ///
-        /// 只有这类按键才需要在搜索框聚焦时屏蔽 ToggleKey 轮询；F5/F1-F12、方向键、
-        /// 修饰键、Escape 等功能键不参与文本输入，必须放行，否则默认 F5 会因为
-        /// 「打开即聚焦搜索框」而永远无法关闭面板。
-        ///
-        /// 判定用白名单（列出会产生字符的键）而非黑名单：KeyCode 有 300+ 个值（含手柄按钮、
-        /// 鼠标键），漏列一个功能键就会复现上面的死锁，而漏列一个字符键只是恢复到"打字误关面板"
-        /// 这一较轻的问题。宁可放行也不要误屏蔽。
-        /// </summary>
-        private static bool IsTextInputKey(KeyCode key)
-        {
-            // 字母 A-Z
-            if (key >= KeyCode.A && key <= KeyCode.Z)
-            {
-                return true;
-            }
-            // 主键盘数字 0-9
-            if (key >= KeyCode.Alpha0 && key <= KeyCode.Alpha9)
-            {
-                return true;
-            }
-            // 小键盘数字与运算符（会输入字符）
-            if (key >= KeyCode.Keypad0 && key <= KeyCode.KeypadEquals)
-            {
-                return true;
-            }
-            switch (key)
-            {
-                // 标点与符号键
-                case KeyCode.Space:
-                case KeyCode.Exclaim:
-                case KeyCode.DoubleQuote:
-                case KeyCode.Hash:
-                case KeyCode.Dollar:
-                case KeyCode.Percent:
-                case KeyCode.Ampersand:
-                case KeyCode.Quote:
-                case KeyCode.LeftParen:
-                case KeyCode.RightParen:
-                case KeyCode.Asterisk:
-                case KeyCode.Plus:
-                case KeyCode.Comma:
-                case KeyCode.Minus:
-                case KeyCode.Period:
-                case KeyCode.Slash:
-                case KeyCode.Colon:
-                case KeyCode.Semicolon:
-                case KeyCode.Less:
-                case KeyCode.Equals:
-                case KeyCode.Greater:
-                case KeyCode.Question:
-                case KeyCode.At:
-                case KeyCode.LeftBracket:
-                case KeyCode.Backslash:
-                case KeyCode.RightBracket:
-                case KeyCode.Caret:
-                case KeyCode.Underscore:
-                case KeyCode.BackQuote:
-                case KeyCode.Tilde:
-                // 编辑键：也会改变输入框内容，同样应让给输入框
-                case KeyCode.Backspace:
-                case KeyCode.Delete:
-                case KeyCode.Return:
-                case KeyCode.KeypadEnter:
-                case KeyCode.Tab:
-                    return true;
-                default:
-                    return false;
-            }
         }
 
         /// <summary>

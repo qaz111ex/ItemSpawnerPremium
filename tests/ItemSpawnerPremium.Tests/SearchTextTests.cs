@@ -42,8 +42,38 @@ namespace ItemSpawnerPremium.Tests
         public void StripNonAlnum_LowercasesWithInvariantCulture()
         {
             Assert.That(SearchText.StripNonAlnum("MYSTICAL"), Is.EqualTo("mystical"));
-            // 土耳其语 I 的折叠：必须走 Invariant（I→i），不能随线程区域漂移成 ı
-            Assert.That(SearchText.StripNonAlnum("I"), Is.EqualTo("i"));
+
+            // 旧断言只在默认区域下断言 StripNonAlnum("I") == "i"，注释虽然写着「必须走 Invariant，
+            // 不能随线程区域漂移成 ı」，但**没有切换区域** —— 默认区域下 char.ToLower 与
+            // char.ToLowerInvariant 同值，断言毫无区分力。实测：把 SearchText.cs 的
+            // char.ToLowerInvariant 改成 char.ToLower 后全部测试仍然全绿。
+            //
+            // 土耳其/阿塞拜疆区域下 char.ToLower('I') == 'ı' (U+0131)，与 Invariant 的 'i' (U+0069)
+            // 不同。归一化一旦漂移，displayName 与 query 会走不同的折叠规则，土耳其玩家搜含 I 的
+            // 物品会漏匹配。所以必须在 tr-TR 下断言，并在 finally 里还原区域（测试须机器/区域无关）。
+            System.Globalization.CultureInfo original = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    new System.Globalization.CultureInfo("tr-TR");
+
+                // 先固化前提：本区域下 char.ToLower 确实与 Invariant 不同（否则本测试又退化成重言式，
+                // 例如某些精简 ICU 环境不带土耳其规则时应当明确失败而不是假绿）。
+                Assert.That(char.ToLower('I'), Is.EqualTo('\u0131'),
+                    "当前运行环境的 tr-TR 大小写规则不生效，本测试无法验证 Invariant 归一化");
+                Assert.That(char.ToLowerInvariant('I'), Is.EqualTo('i'));
+
+                Assert.That(SearchText.StripNonAlnum("I"), Is.EqualTo("i"),
+                    "归一化未用 Invariant：tr-TR 下 I 被折叠成 ı，与 query 口径不一致会导致漏匹配");
+                Assert.That(SearchText.StripNonAlnum("IDOL"), Is.EqualTo("idol"));
+                // 拼音归一化走同一个 FilterAlnumLower，同样不能漂移
+                Assert.That(SearchText.ToPinyin("IDOL"), Is.EqualTo("idol"));
+                Assert.That(SearchText.ToPinyinInitials("IDOL"), Is.EqualTo("idol"));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = original;
+            }
         }
 
         [Test]
@@ -249,6 +279,68 @@ namespace ItemSpawnerPremium.Tests
         {
             // Engine 层输出大写，小写化是 SearchText 的职责 —— 固化这个分工，避免有人在 Engine 里加 ToLower
             Assert.That(TinyPinyin.Engine.GetPinyinByChar('热'), Is.EqualTo("RE"));
+        }
+
+        // ---------- PinyinHelper 门面层（此前 0 覆盖）----------
+
+        [Test]
+        public void PinyinHelper_IsChinese_DelegatesToEngine()
+        {
+            // PinyinHelper 是 TinyPinyin 的公开门面；SearchText 只用到 GetPinyin(string, sep)
+            // 与 GetPinyinInitials，另两个重载此前完全没有测试。它们是薄委托，但"薄"是当前实现的
+            // 性质而非契约 —— 有人改成"顺手做点归一化"就会与 Engine 分叉，而 SearchText 的
+            // 归一化口径一致性依赖它们与 Engine 同结论。
+            Assert.That(TinyPinyin.PinyinHelper.IsChinese('热'), Is.True);
+            Assert.That(TinyPinyin.PinyinHelper.IsChinese('A'), Is.False);
+            Assert.That(TinyPinyin.PinyinHelper.IsChinese('〇'), Is.True, "〇 走 CHAR_12295 特例");
+            Assert.That(TinyPinyin.PinyinHelper.IsChinese('热'),
+                Is.EqualTo(TinyPinyin.Engine.IsChinese('热')));
+        }
+
+        [Test]
+        public void PinyinHelper_GetPinyinChar_ReturnsUppercaseOrTheCharItself()
+        {
+            Assert.That(TinyPinyin.PinyinHelper.GetPinyin('热'), Is.EqualTo("RE"));
+            Assert.That(TinyPinyin.PinyinHelper.GetPinyin('〇'), Is.EqualTo("LING"));
+            // 非汉字原样返回单字符串（不是空串）—— ToPinyin 依赖这一点来保留 ASCII
+            Assert.That(TinyPinyin.PinyinHelper.GetPinyin('A'), Is.EqualTo("A"));
+            Assert.That(TinyPinyin.PinyinHelper.GetPinyin(' '), Is.EqualTo(" "));
+        }
+
+        [Test]
+        public void PinyinHelper_GetPinyinString_DefaultSeparatorIsSingleSpace()
+        {
+            // 默认参数 separator = " " 这条路径没有任何调用方（SearchText 一律显式传 ""），
+            // 因此改动它不会被现有测试发现。这里锁定它，因为它是 TinyPinyin 的公开 API 契约。
+            Assert.That(TinyPinyin.PinyinHelper.GetPinyin("绳索枪"), Is.EqualTo("SHENG SUO QIANG"));
+            Assert.That(TinyPinyin.PinyinHelper.GetPinyin("绳索枪", ""), Is.EqualTo("SHENGSUOQIANG"));
+            Assert.That(TinyPinyin.PinyinHelper.GetPinyin("绳索枪", "-"), Is.EqualTo("SHENG-SUO-QIANG"));
+        }
+
+        [Test]
+        public void PinyinHelper_GetPinyinInitials_HonoursNonEmptySeparator()
+        {
+            // 默认 separator = ""（SearchText 用的就是默认值），非空分隔符路径此前无覆盖
+            Assert.That(TinyPinyin.PinyinHelper.GetPinyinInitials("绳索枪"), Is.EqualTo("SSQ"));
+            Assert.That(TinyPinyin.PinyinHelper.GetPinyinInitials("绳索枪", "-"), Is.EqualTo("S-S-Q"));
+            Assert.That(TinyPinyin.PinyinHelper.GetPinyinInitials("绳索枪", " "), Is.EqualTo("S S Q"));
+            // null/空串按原样返回（注意：返回的是入参本身，不是 ""；SearchText 在上层已挡掉 null）
+            Assert.That(TinyPinyin.PinyinHelper.GetPinyinInitials(null), Is.Null);
+            Assert.That(TinyPinyin.PinyinHelper.GetPinyinInitials(""), Is.EqualTo(""));
+        }
+
+        [Test]
+        public void Engine_ToPinyin_DoesNotAppendSeparatorAfterLastCharacter()
+        {
+            // Engine.ToPinyin 的循环里 `if (i != inputStr.Length - 1)` 是唯一的边界判断。
+            // 若写成无条件 Append，结果会带尾随分隔符 —— SearchText 用的是空分隔符所以看不出来，
+            // 但 GetPinyinInitials 传的是 "|"，尾随 "|" 会多出一个空音节段。
+            Assert.That(TinyPinyin.Engine.ToPinyin("绳索枪", "-"), Is.EqualTo("SHENG-SUO-QIANG"));
+            Assert.That(TinyPinyin.Engine.ToPinyin("热", "-"), Is.EqualTo("RE"), "单字符不应带分隔符");
+            Assert.That(TinyPinyin.Engine.ToPinyin("绳索枪", "-"), Does.Not.EndWith("-"));
+            // null/空串直接原样返回（不抛、不变成 ""）
+            Assert.That(TinyPinyin.Engine.ToPinyin(null, "-"), Is.Null);
+            Assert.That(TinyPinyin.Engine.ToPinyin("", "-"), Is.EqualTo(""));
         }
 
         [Test]

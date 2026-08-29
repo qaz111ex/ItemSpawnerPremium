@@ -31,21 +31,7 @@ namespace ItemSpawnerEnhancement
                 null);
 
         /// <summary>
-        /// 生成节流时间戳（unscaledTime）：上一次成功派发 SpawnItemInHand RPC 的时刻。
-        /// 静态而非实例字段：窗口是 DontDestroyOnLoad 单例，静态即全局唯一，且与 Spawn 的静态签名一致。
-        /// </summary>
-        private static float _lastSpawnTime = float.NegativeInfinity;
-
-        /// <summary>
-        /// 生成最小间隔（秒）。取 0.25 对齐 Item.Interact 的门槛：
-        /// Item.Interact 开头有 `interactor.refs.items.lastEquippedSlotTime + 0.25f > Time.time` 直接 return，
-        /// 即 0.25 秒内重复生成的物品根本不会被拾取——房主端却已经 PhotonNetwork.Instantiate 出实体，
-        /// 结果是"连点 N 次只拿到 1 个，地上/内存里多出 N-1 个网络对象"。故在客户端就掐住这个频率。
-        /// </summary>
-        private const float SpawnCooldown = 0.25f;
-
-        /// <summary>
-        /// P0-1 回滚标记：本次 MenuWindow.Open() 中 OnOpen 失败并已反射 Close() 回滚。
+        /// 回滚标记：本次 MenuWindow.Open() 中 OnOpen 失败并已反射 Close() 回滚。
         /// 由 <see cref="Update"/> 消费（复位 inputActive），理由见 OnOpen / Update 的注释。
         /// </summary>
         private bool _openRolledBack;
@@ -85,7 +71,21 @@ namespace ItemSpawnerEnhancement
         public override bool closeOnUICancel => true;
         public override bool blocksPlayerInput => true;
         public override bool selectOnOpen => true;
-        public override Selectable objectToSelectOnOpen => searchInput;
+        /// <summary>
+        /// 手柄下打开面板时的默认选中项：第一个分类按钮，而不是搜索框。
+        ///
+        /// MenuWindow.Open 在手柄方案下会真的 EventSystem.SetSelectedGameObject(此对象)
+        /// （键鼠下 UIInputHandler.SetSelectedObject 是空操作），而 TMP_InputField 被 Select 后
+        /// 会因 shouldActivateOnSelect 自动 ActivateInputField，激活后 m_AllowInput 为 true，
+        /// 其 OnMove 实现是 `if (!m_AllowInput) base.OnMove(...)` —— 输入框吞掉全部方向导航，
+        /// 手柄玩家进了搜索框就摇不出来，只能打字（面板仍能用 UI 取消键关掉，不是死锁，
+        /// 但等于只剩一个功能可用）。
+        /// 键鼠下这个返回值无关紧要（SetSelectedObject 空操作），焦点由 UiEnhancer.FocusSearch 处理。
+        /// </summary>
+        public override Selectable objectToSelectOnOpen
+        {
+            get { return UiEnhancer.IsGamepadScheme() ? UiEnhancer.GetGamepadStartingSelectable() : (Selectable)searchInput; }
+        }
         public override bool autoHideOnClose => true;
         public override GameObject panel => canvasObject;
 
@@ -144,12 +144,46 @@ namespace ItemSpawnerEnhancement
         }
 
         /// <summary>
-        /// 复位 OnOpen 失败回滚遗留的 inputActive（详见 OnOpen 中的时序注释），
-        /// 必须在 base.Update()（内含 TestCloseViaInput）之前执行，否则本帧按键仍会被吞。
+        /// 每帧校验窗口状态不变量，命中非法组合就自愈。
+        ///
+        /// 为什么需要无条件自愈、而不只是消费 <see cref="_openRolledBack"/>：
+        /// MenuWindow.Open() 的步骤序列是
+        ///   isOpen=true → AllActiveWindows.Add → Show() → Initialize() → OnOpen()
+        ///   → if (selectOnOpen) SelectStartingElement() → SetInputActive(true)
+        /// 我们只能包住 OnOpen（见其注释）。而 SelectStartingElement 是 MenuWindow 的 **private**
+        /// 方法（反编译 MenuWindow.cs:173-176），无法 override、无法包 try；它调
+        /// UIInputHandler.SetSelectedObject，后者在手柄方案下执行
+        /// `EventSystem.current.SetSelectedGameObject(obj)` 而**对 EventSystem.current 不判空**
+        /// （UIInputHandler.cs:69-75）。本窗口 selectOnOpen 为 true，主动走了这条分支。
+        ///
+        /// 若那一行抛出，异常在 SetInputActive(true) **之前**冒泡出 Open()，被 ToggleWindow 的
+        /// catch 吞掉，留下最坏的半开状态：
+        ///   isOpen==true 且仍在 AllActiveWindows → blocksPlayerInput 使
+        ///   GUIManager.UpdateWindowStatus 每帧置 windowBlockingInput=true → Character.CanDoInput()
+        ///   恒 false，角色完全不能动；
+        ///   同时 inputActive==false 使 TestCloseViaInput 整个方法体被 `if (inputActive)` 挡住
+        ///   （MenuWindow.cs:59-74）→ Esc / UI 取消都关不掉窗口。
+        /// 此时 _openRolledBack 为 false（根本没进 OnOpen 的 catch），旧实现不会做任何补救，
+        /// 玩家只能靠 F5 或重启。
+        ///
+        /// 「isOpen && !inputActive」是一个 MenuWindow 正常运行时不该出现的组合：Open() 结尾必置
+        /// inputActive=true，Close() 会同时清 isOpen 与 inputActive。因此把它当作"Open 中途断裂"
+        /// 的信号并强制 Close()，对任何断裂点都有效，不需要知道具体断在哪一步。
+        /// 反向的「!isOpen && inputActive」则是 OnOpen 回滚后 Open() 继续执行 SetInputActive(true)
+        /// 造成的（详见 OnOpen 的时序注释），必须在 base.Update()（内含 TestCloseViaInput）之前
+        /// 复位，否则本帧按键仍会被吞。
         /// </summary>
         protected override void Update()
         {
-            if (_openRolledBack)
+            if (isOpen && !inputActive)
+            {
+                // Open() 中途断裂：窗口正锁着玩家输入却又关不掉，强制走完整的 Close 解锁。
+                // 只记一条 Error（Close 成功后 isOpen 变 false，下一帧不再命中，不会刷屏）。
+                Plugin.Log.LogError("ItemSpawnerPremium: 检测到窗口处于半开状态"
+                    + "（isOpen 为真但输入未激活，说明 MenuWindow.Open 中途抛异常），已强制关闭以解除输入锁定");
+                CloseWindow(this);
+            }
+            else if (_openRolledBack)
             {
                 _openRolledBack = false;
                 if (!isOpen)
@@ -229,11 +263,28 @@ namespace ItemSpawnerEnhancement
             }
             // 用 InRoom 而非 IsConnected：后者在 OfflineMode 或仅连上 master server 未进房时也为 true，
             // 此时 SpawnItemInHand 的 RPC 会被 Photon 静默丢弃（只记 Warning），玩家看到"点了没反应"。
-            if (!PhotonNetwork.InRoom || Character.localCharacter == null
-                || Character.localCharacter.refs == null
-                || Character.localCharacter.refs.items == null)
+            Character local = Character.localCharacter;
+            if (!PhotonNetwork.InRoom || local == null
+                || local.refs == null
+                || local.refs.items == null)
             {
                 Plugin.Log.LogWarning("ItemSpawnerPremium: 无法生成 " + item.gameObject.name + "（未进入房间或本地角色不存在）");
+                return false;
+            }
+            // player 必须判空：房主端 Item.Interact 第一行就是 `interactor.player.HasEmptySlot(itemID)`
+            // （反编译 Item.cs:549-551），而 Character.player 是
+            // `PlayerHandler.GetPlayer(view.Owner)` → `m_playerLookup.GetValueOrDefault(ActorNumber)`
+            // （Character.cs:201 / PlayerHandler.cs:206-209），**可以返回 null**。
+            // 窗口期是"角色已 spawn 但 PlayerHandler 尚未注册 / 已注销"。
+            // 该 NRE 发生在游戏侧 ExecuteRpc 的 methodInfo.Invoke 里（无 try/catch），
+            // 本插件下方的 catch 只覆盖本地 Invoke，捕不到，所以只能在发 RPC 之前拦住。
+            //
+            // 注意这里只拦"会让房主端抛异常"的情况。**不检查背包是否已满、角色是否死亡/昏迷** ——
+            // 那些是游戏自身的机制（手上拿满了新物品就掉地上、尸体也能拾取），不是本模组的缺陷，
+            // 替玩家拦下来反而是剥夺操作自由。
+            if (local.player == null)
+            {
+                Plugin.Log.LogWarning("ItemSpawnerPremium: 无法生成 " + item.gameObject.name + "（玩家数据尚未就绪）");
                 return false;
             }
             if (SpawnItemInHandMethod == null)
@@ -241,20 +292,42 @@ namespace ItemSpawnerEnhancement
                 Plugin.Log.LogError("ItemSpawnerPremium: 反射获取 CharacterItems.SpawnItemInHand 失败，无法生成物品");
                 return false;
             }
-            // 连点节流：用 unscaledTime 而非 time，因为打开面板期间游戏可能被暂停（timeScale=0），
-            // 那样 Time.time 不前进会把闸门永久卡住。被节流时不发 RPC，只记 LogDebug——
-            // 连点是正常玩家操作，用 Warning 会刷屏日志。
-            if (Time.unscaledTime - _lastSpawnTime < SpawnCooldown)
+            // prefab 可加载性预检。房主端的 RPC_SpawnItemInHandMaster 是
+            //   PhotonNetwork.Instantiate("0_Items/" + objName, ...).GetComponent<Item>().Interact(character)
+            // （CharacterItems.cs:1112-1116）—— **对 Instantiate 的返回值不判空**。
+            // 而 PhotonNetwork.Instantiate 有两条返回 null 的路径（PhotonNetwork.cs:1733-1751）：
+            // prefabPool.Instantiate 失败（DefaultPool 走 Resources.Load，失败只记 Error 返回 null，
+            // DefaultPool.cs:13-20）、或 prefab 没有 PhotonView。任一命中都会让 .GetComponent<Item>()
+            // 在游戏侧 RPC 里 NRE，本插件捕不到。
+            //
+            // 纯 vanilla 下不可达：实测 ItemDatabase.Objects 的 194 项全部有对应的
+            // Resources 条目 "0_Items/<gameObject.name>"，且全部带 PhotonView。
+            // 但物品模组可以通过 DatabaseAsset.AddRuntimeEntry（Zorro.Core\DatabaseAsset.cs:11-14）
+            // 或 ItemDatabase.Add（[ConsoleCommand]）在运行时往库里追加条目，那些 prefab 通常来自
+            // AssetBundle、**不在 Resources/0_Items 下**。此时本模组目录里会出现一个可点击条目，
+            // 点一下就在房主端炸一个不可捕获的 NRE。
+            // Resources.Load 自身带缓存（且 DefaultPool.ResourceCache 后续也会命中），
+            // 把这个游戏侧不可捕获的崩溃降级成本插件的一条 Warning，代价可以接受。
+            string prefabPath = "0_Items/" + item.gameObject.name;
+            bool loadable;
+            try
             {
-                Plugin.Log.LogDebug("ItemSpawnerPremium: 生成过快，已忽略本次点击 " + item.gameObject.name);
+                loadable = Resources.Load<GameObject>(prefabPath) != null;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogDebug("ItemSpawnerPremium: prefab 可加载性检查失败，跳过该前置判定: " + ex.Message);
+                loadable = true;
+            }
+            if (!loadable)
+            {
+                Plugin.Log.LogWarning("ItemSpawnerPremium: 无法生成 " + item.gameObject.name
+                    + "（Resources 中找不到 " + prefabPath + "，可能是未随 Resources 打包的模组物品）");
                 return false;
             }
             try
             {
-                SpawnItemInHandMethod.Invoke(Character.localCharacter.refs.items, new object[] { item.gameObject.name });
-                // 只在 RPC 真正派发成功后推进时间戳：若 Invoke 抛异常（RPC 未发出），
-                // 不应因此让下一次合法点击也被节流掉。
-                _lastSpawnTime = Time.unscaledTime;
+                SpawnItemInHandMethod.Invoke(local.refs.items, new object[] { item.gameObject.name });
                 return true;
             }
             catch (Exception ex)

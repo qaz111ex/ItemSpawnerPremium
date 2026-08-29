@@ -16,16 +16,32 @@ namespace ItemSpawnerEnhancement
 
         public void OnPointerClick(PointerEventData eventData)
         {
-            // 拖拽结束时不触发收藏：EventSystem 在拖拽后仍会派发 OnPointerClick（只要按下与松开在同一对象上），
-            // 玩家按住右键滚动/拖动列表后松手，会被误判成一次"右键点击"而切换收藏状态。
-            // PointerEventData.dragging 在拖拽进行中为 true（UnityEngine.UI 的 PointerEventData 属性，已确认存在）。
-            if (eventData.dragging)
+            try
             {
-                return;
+                // 拖拽中不触发收藏。
+                //
+                // 实际上这层守卫在本作用的两个输入模块下都不会命中：
+                // InputSystemUIInputModule.ProcessPointerButtonDrag 一旦发现
+                // `pointerPress != pointerDrag` 就把 eligibleForClick 置 false，
+                // 而条目卡片是 pointerPress（PressFeedback 实现 IPointerDownHandler）、
+                // pointerDrag 会沿层级上溯到 ScrollRect（IDragHandler），二者必然不同 ——
+                // 释放时 pointerClickHandler 根本不会被派发。StandaloneInputModule 同理。
+                // 保留它是零成本的前瞻防御（换输入模块 / 未来 UI 结构变化时仍然正确），
+                // 但不要据「EventSystem 拖拽后仍会派发 OnPointerClick」这个错误前提做别的推理。
+                if (eventData.dragging)
+                {
+                    return;
+                }
+                if (eventData.button == PointerEventData.InputButton.Right && _onFavorite != null)
+                {
+                    _onFavorite();
+                }
             }
-            if (eventData.button == PointerEventData.InputButton.Right && _onFavorite != null)
+            catch (Exception ex)
             {
-                _onFavorite();
+                // UI 回调兜底：ExecuteEvents.Execute 虽有框架级 try/catch，但那条日志不带本模组前缀，
+                // 排障时按前缀 grep 会漏掉。
+                Plugin.Log.LogError("ItemSpawnerPremium: 右键切换收藏失败: " + ex);
             }
         }
     }

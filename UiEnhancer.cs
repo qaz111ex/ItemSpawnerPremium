@@ -4,6 +4,7 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using Zorro.ControllerSupport;
 
 namespace ItemSpawnerEnhancement
 {
@@ -38,37 +39,6 @@ namespace ItemSpawnerEnhancement
         private static Sprite _scrollbarBgSprite;
         private static Sprite _scrollbarHandleSprite;
         private static Sprite _shadowSprite;
-
-        // ── 字体解析缓存 ────────────────────────────────────────────────
-        // ResolveFont 在 Setup / Build / CreateCategoryBar / RefreshButtonLabels 各调一次，
-        // 而 ItemListView.FindFont 内部是 Resources.FindObjectsOfTypeAll<TMP_FontAsset>() 全量遍历
-        // （PEAK 的已加载对象量级下单次可达数十毫秒），故装饰字体的查询结果必须静态缓存。
-        private static TMP_FontAsset _decorativeFont;
-        // 负缓存：仅当"确实遍历过但没找到"时置位，避免每次 ResolveFont 都重跑全量遍历。
-        // 注意 TMP_FontAsset 继承 UnityEngine.Object，其 == null 也会把"已销毁/已卸载"的对象判为 null：
-        // 因此若字体曾找到、之后资源被卸载，_decorativeFont 变 null 而本标志仍为 false，
-        // 下次会重查一次（而非永久放弃装饰字体），重查仍失败才真正转入负缓存。
-        private static bool _decorativeFontMissing;
-
-        // 装饰字体的「字符覆盖探测」结果缓存（见 DecorativeFontCoversUiText）。
-        // 按「当前语言 + 字体实例 ID」为键自失效：语言切换（RefreshButtonLabels 路径）与字体资源被换
-        // 都会让键不匹配从而重新探测，无需在别处手动清缓存 —— 也覆盖了「面板尚未构建时玩家已切过语言」
-        // 这种不经过 RefreshButtonLabels 的路径。
-        private static bool _coverageProbed;
-        private static bool _coverageResult;
-        private static LocalizedText.Language _coverageLanguage;
-        private static int _coverageFontId;
-
-        /// <summary>
-        /// 本模组全部 UI 文案 key，作为字体能力探测的取样来源（与 Localization/*.json 的 key 集合一致）。
-        /// 只取这 10 条界面文案、不取物品名：物品名有 150+ 条且依赖 ItemDatabase 就绪，
-        /// 而 ResolveFont 在 Setup 最早期就会被调用，此时目录还没建起来。
-        /// </summary>
-        private static readonly string[] UiTextKeys =
-        {
-            "catAll", "catTools", "catFood", "catMystical", "catEquipment",
-            "catConsumables", "catProps", "catFavorite", "searchPlaceholder", "rightClickHint",
-        };
 
         /// <summary>一套完整 UI 配色（按样式切换）。颜色通过下方 getter 属性按当前样式取值，所有引用点无需改动。</summary>
         private sealed class Palette
@@ -182,11 +152,25 @@ namespace ItemSpawnerEnhancement
             // 那是每帧渲染路径，结果是日志刷屏 + 面板不可用。
             // 故此处直接放弃本次 Setup：不创建任何节点、不挂 ItemListView，Initialized 保持 false，
             // 下一次 F5 或 Warmup 轮询会重试（届时字体可能已加载好）。
-            // ResolveFont 内含 Resources.FindObjectsOfTypeAll，但装饰字体查询与字符覆盖探测都已静态缓存，
-            // 本次检查之后 Build / CreateCategoryBar 的两次调用都命中缓存。
+            // ResolveFont 已静态缓存，本次检查之后 Build / CreateCategoryBar 的两次调用都命中缓存。
             if (ResolveFont() == null)
             {
                 Plugin.Log.LogWarning("ItemSpawnerPremium: 未找到任何可用 TMP 字体，本次跳过 UI 构建（稍后重试）");
+                return;
+            }
+            // CJK/西里尔语言的额外就绪防线：这些字形只能来自 FontFallbackSwapper.mainBaseFont
+            // 的 fallback 链（实测 mainBaseFont 的 fallback 表含 NotoSansSC / NotoSansTC /
+            // Korean Binggrae，覆盖简繁日韩；西里尔由 Pangolin-Regular 覆盖）。
+            // 若 swapper 尚未 Awake（场景切换空窗期 / 早期 F5），ResolveFont 会落到末端兜底
+            // LiberationSans SDF —— 实测它静态表只有 250 个码点、fallback 表仅 1 项，
+            // 既不含西里尔也不含 CJK（连法语 Œ 都缺）。而字体只在 Init 与 OnLanguageChanged
+            // 时重解析，于是简中/繁中/日/韩/俄/乌玩家会看到**永久**方块，直到手动切一次语言。
+            // 故这些语言下宁可本次不建面板（下一轮 F5/Warmup 重试），也不要建出一个满是方块的面板。
+            // 拉丁语言不受此限：LiberationSans 的基本拉丁字形是完整的，观感只是"字体不对"而非不可读。
+            if (ItemListView.NeedsCjkFont() && FontFallbackSwapper.instance == null)
+            {
+                Plugin.Log.LogWarning("ItemSpawnerPremium: 字体回退表尚未就绪（FontFallbackSwapper 缺席），"
+                    + "当前语言需要 CJK/西里尔字形，本次跳过 UI 构建（稍后重试）");
                 return;
             }
 
@@ -229,19 +213,23 @@ namespace ItemSpawnerEnhancement
         }
 
         /// <summary>
-        /// 激活搜索框输入焦点（"打开即搜索"）。
+        /// 打开面板时把输入焦点/导航焦点交给合适的控件。
         ///
-        /// 为什么需要它：窗口的 selectOnOpen/objectToSelectOnOpen 走的是
-        /// MenuWindow.SelectStartingElement → UIInputHandler.SetSelectedObject，而后者
-        /// （反编译 UIInputHandler.cs:69-75）**只在 InputHandler.GetCurrentUsedInputScheme() == Gamepad**
-        /// 时才 EventSystem.SetSelectedGameObject，键鼠方案下是彻底的空操作；
-        /// 且 TMP_InputField 即使被 Select 也仍需 ActivateInputField() 才会接收键入。
+        /// 键鼠：激活搜索框（"打开即搜索"）。这一步是必需的，因为窗口的
+        /// selectOnOpen/objectToSelectOnOpen 走的是 MenuWindow.SelectStartingElement →
+        /// UIInputHandler.SetSelectedObject，而后者（反编译 UIInputHandler.cs:69-75）
+        /// **只在 InputHandler.GetCurrentUsedInputScheme() == Gamepad 时**才
+        /// EventSystem.SetSelectedGameObject，键鼠方案下是彻底的空操作；且 TMP_InputField
+        /// 即使被 Select 也仍需 ActivateInputField() 才会接收键入。
         /// 结果就是键鼠玩家每次打开面板都得多点一次搜索框。
         ///
-        /// 时序：Setup 由 OnOpen 调用，此刻 MenuWindow.Open 还没执行 SelectStartingElement()。
-        /// 但如上所述键鼠下它是空操作，不会把焦点抢走；Gamepad 下它会 SetSelectedGameObject(searchInput)，
-        /// 而 TMP_InputField.ActivateInputFieldInternal 本身也会把自己设为 selected（TMP_InputField.cs:3805），
-        /// 目标一致，不冲突。
+        /// 手柄：**绝不能**激活搜索框。TMP_InputField 激活后 m_AllowInput 为 true，而
+        /// `OnMove` 的实现是 `if (!m_AllowInput) base.OnMove(eventData);`（TMP_InputField.cs:3950-3956）
+        /// —— 输入框会吞掉全部方向导航，手柄玩家进了搜索框就再也摇不出来，只能打字。
+        /// 而 MenuWindow.Open 在手柄下会主动 SetSelectedGameObject(objectToSelectOnOpen)，
+        /// 那正是 searchInput，其 OnSelect 又会因 shouldActivateOnSelect 自动 ActivateInputField
+        /// （TMP_InputField.cs:3842-3850）—— 所以手柄下不仅不能主动激活，还得把默认选中项
+        /// 改成分类按钮（见 ItemSpawnerPremiumWindow.objectToSelectOnOpen）。
         ///
         /// ActivateInputField 内部要求 IsActive() && IsInteractable()（TMP_InputField.cs:3788），
         /// 且真正激活发生在下一次 LateUpdate（m_ShouldActivateNextUpdate）。故 Warmup 预热路径
@@ -253,7 +241,52 @@ namespace ItemSpawnerEnhancement
             {
                 return;
             }
+            if (IsGamepadScheme())
+            {
+                return;
+            }
             window.searchInput.ActivateInputField();
+        }
+
+        /// <summary>
+        /// 当前输入方案是否为手柄。读 InputHandler.GetCurrentUsedInputScheme()，
+        /// 它只是返回一个已缓存的字段（InputHandler.cs:36-39），但会触发
+        /// RetrievableResourceSingleton&lt;InputHandler&gt;.Instance —— 该 Instance 在缺失时会
+        /// Resources.Load + Instantiate，所以包 try/catch 并在失败时按"键鼠"处理
+        /// （键鼠是绝大多数情况，且误判为键鼠只会多激活一次输入框，误判为手柄会让键鼠玩家
+        /// 每次打开面板都得手动点搜索框）。
+        /// </summary>
+        internal static bool IsGamepadScheme()
+        {
+            try
+            {
+                return InputHandler.GetCurrentUsedInputScheme() == InputScheme.Gamepad;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogDebug("ItemSpawnerPremium: 读取输入方案失败，按键鼠处理: " + ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 手柄下打开面板时的默认选中项（供窗口的 objectToSelectOnOpen 使用）：第一个分类按钮。
+        ///
+        /// 手柄玩家的导航起点不能是搜索框，理由见 <see cref="FocusSearch"/>。
+        /// 返回 null 时 MenuWindow.SelectStartingElement 会 SetSelectedObject(null)，
+        /// 由 NavigationContainerHandler.LateUpdate 在下一帧用 GetDefaultSelection() 补选
+        /// （它对 currentSelectedGameObject == null 且非键鼠方案的情况会重新选中容器默认项）。
+        /// </summary>
+        internal static Selectable GetGamepadStartingSelectable()
+        {
+            for (int i = 0; i < _categoryButtons.Count; i++)
+            {
+                if (_categoryButtons[i] != null)
+                {
+                    return _categoryButtons[i];
+                }
+            }
+            return null;
         }
 
         private static void EnsureCanvas(ItemSpawnerPremiumWindow window)
@@ -308,227 +341,30 @@ namespace ItemSpawnerEnhancement
         }
 
         /// <summary>
-        /// 解析当前语言应使用的字体。**这是全模组唯一的字体决策入口**，
+        /// 解析界面应使用的 TMP 字体。**这是全模组唯一的字体决策入口**，
         /// UiEnhancer 构建的节点与 ItemListView 动态刷新的节点（物品名、搜索框文字/占位符）
-        /// 必须都走它，否则两边会得出不同结论 —— 例如波兰语下 UiEnhancer 已降级到主字体，
-        /// 而 ItemListView 仍按自己缓存的装饰字体给物品名赋值，物品名照样显示方块。
+        /// 必须都走它，否则两边可能得出不同结论。
+        ///
+        /// 为什么只有一条链、不再做「字符覆盖探测 + 降级」（2.3.0 删除了那套逻辑）：
+        /// 实测（UnityPy 解 PEAK_Data\level0/1/3..13 共 13 个含 FontFallbackSwapper 的场景）
+        /// 每一处的 mainBaseFont 都指向 sharedassets0.assets 的 pathID 81，而该对象
+        /// m_Name == "DarumaDropOne-Regular SDF" —— 也就是说「游戏主字体」与「手绘装饰字体」
+        /// 在本作里**是同一个 TMP_FontAsset 实例**（全游戏只有 16 个 TMP_FontAsset，Daruma 唯一）。
+        /// 于是原先「探测到装饰字体缺字 → 降级到主字体」在任何语言下都换不出别的字体，
+        /// 纯属空转，还会每次切语言跑一遍 HasCharacters 并打一条误导性日志
+        /// （"界面改用游戏主字体"，实际什么都没换）。
+        ///
+        /// 那多语言字形从哪来？靠 mainBaseFont 自身的 fallbackFontAssetTable（实测 4 项）：
+        /// Pangolin-Regular SDF（cmap 856，覆盖 tr/pl/de/fr/it/es/pt-BR 全部变音 + 西里尔 + 乌语专有字母，零缺失）、
+        /// NotoSansSC SDF ×2（简中 + 日文假名汉字）、Korean Binggrae-Bold SDF（韩文）。
+        /// TMP 在 GenerateTextMesh 里逐字走 fallback 链，因此 Daruma 自身静态表只有 281 个码点
+        /// （确实缺 ğĞşŞıİ、波兰全部变音、全部西里尔）也不会显示方块 ——
+        /// 运行日志中 TMP 的 "character ... was not found in the [...] font asset or any potential fallbacks"
+        /// 计数为 0，与此一致。
         /// </summary>
         internal static TMP_FontAsset ResolveFont()
         {
-            // CJK/西里尔语言直接走游戏主字体（含 fallback 链）：装饰字体连基本字形都没有，无需探测。
-            // 注意 ItemListView.NeedsCjkFont() 只覆盖 简/繁/日/韩/俄/乌，剩下 9 种拉丁语言里
-            // pl/tr/de/fr/it/es/pt-BR 的文案含大量 Latin-1 Supplement / Latin Extended-A 字符
-            // （ę ż ü ğ ş ı É í ñ）以及 U+2014 em dash，DarumaDropOne 这类日系手绘装饰字体
-            // 的拉丁子集未必覆盖 —— 2.1.0 已因同样原因把俄/乌划归主字体。
-            // 由于不能修改 ItemListView.NeedsCjkFont()，这里改为「用当前语言的真实文案去探测装饰字体」，
-            // 覆盖不全就降级到主字体，从而对未来新增语言也自动生效。
-            //
-            // 注意 Loc 依赖注入：BuildUiProbeText 走 Loc.Get，而 Loc 的语言代码提供者由
-            // Plugin.Awake 注入。若在注入之前调用，Loc 会回退英文文案 —— 那会让非英文语言
-            // 探测到"英文文案全覆盖"而错误保留装饰字体。实际调用链上 Setup/Build/RefreshButtonLabels
-            // 都发生在 Plugin.Awake 之后（窗口由 GUIManager.Start 的 Postfix 创建），故安全；
-            // 但覆盖探测结果是按语言缓存的，若将来有更早的调用点，必须同时清 _coverageProbed。
-            if (ItemListView.NeedsCjkFont())
-            {
-                return ItemListView.GetGameBaseFont();
-            }
-            TMP_FontAsset decorative = GetDecorativeFont();
-            if (decorative != null && DecorativeFontCoversUiText(decorative))
-            {
-                return decorative;
-            }
             return ItemListView.GetGameBaseFont();
-        }
-
-        /// <summary>
-        /// 取装饰字体（含负缓存）：避免每次 ResolveFont 都跑一遍
-        /// ItemListView.FindFont → Resources.FindObjectsOfTypeAll&lt;TMP_FontAsset&gt;() 全量遍历。
-        /// </summary>
-        private static TMP_FontAsset GetDecorativeFont()
-        {
-            // TMP_FontAsset 是 UnityEngine.Object，== null 同时覆盖「从未查到」与「查到后资源被卸载/销毁」，
-            // 后者必须重查（字体资源可能随场景卸载后又被重新加载）。
-            if (_decorativeFont != null)
-            {
-                return _decorativeFont;
-            }
-            if (_decorativeFontMissing)
-            {
-                return null; // 上次遍历确认不存在，不再重复全量遍历
-            }
-            _decorativeFont = ItemListView.FindFont("DarumaDropOne-Regular SDF");
-            if (_decorativeFont == null)
-            {
-                // 只有在「字体系统确实已就绪」时才转入负缓存。
-                // Setup 可能在 TMP 字体资源加载完成之前就被 F5 路径触发（Warmup 路径有
-                // FontFallbackSwapper.instance != null 前置检查，F5 路径没有），此时 FindFont
-                // 找不到装饰字体只是"还没加载"，若无条件记成"不存在"，之后即使字体加载好了
-                // 也永远走不回装饰字体 —— 英文玩家会永久失去手绘风。
-                // 用「游戏主字体是否已能取到」作为就绪判据：取不到说明整个字体系统都没起来，
-                // 本次不记负缓存，下次重查。
-                _decorativeFontMissing = ItemListView.GetGameBaseFont() != null;
-            }
-            return _decorativeFont;
-        }
-
-        /// <summary>
-        /// 探测装饰字体是否覆盖「当前语言实际要显示的 UI 文案字符集」。
-        /// 结果按「语言 + 字体实例」缓存：语言切换或字体资源被替换后键不匹配即自动重探，
-        /// 无需在别处手动清缓存。
-        /// </summary>
-        private static bool DecorativeFontCoversUiText(TMP_FontAsset font)
-        {
-            LocalizedText.Language language = LocalizedText.CURRENT_LANGUAGE;
-            int fontId = font.GetInstanceID();
-            if (_coverageProbed && _coverageLanguage == language && _coverageFontId == fontId)
-            {
-                return _coverageResult;
-            }
-
-            string probe = BuildUiProbeText();
-            bool covered;
-            uint[] missing = null;
-            try
-            {
-                // 关键：searchFallbacks 与 tryAddCharacter 都必须传 false。
-                // 1) tryAddCharacter=true 时，TMP_FontAsset.HasCharacters（反编译 TMP_FontAsset.cs:1108）
-                //    会对 atlasPopulationMode == Dynamic / DynamicOS 的字体现场 TryAddCharacterInternal
-                //    并返回 true —— 那是"能动态栅格化"，不代表这个装饰字体本身有该字形，
-                //    探测会假阳性（而且会真的往图集里塞字，产生副作用）。传 false 只查 characterLookupTable。
-                // 2) searchFallbacks=true 会连 fallbackFontAssetTable / TMP_Settings 一起算"覆盖"，
-                //    结果是渲染时逐字混用主字体的字形，标签变成两种字体拼接，观感比统一用主字体更差。
-                //    故这里要求装饰字体自身完整覆盖，否则整体降级 —— 排版一致优先。
-                covered = font.HasCharacters(probe, out missing, false, false);
-            }
-            catch (Exception ex)
-            {
-                // 探测本身失败（字体资源损坏、characterLookupTable 构建异常等）：保守判为不覆盖，
-                // 降级到游戏主字体。宁可失去手绘装饰风，也不能显示方块。
-                Plugin.Log.LogWarning("ItemSpawnerPremium: 装饰字体字符探测失败，改用游戏主字体: " + ex.Message);
-                covered = false;
-            }
-
-            _coverageProbed = true;
-            _coverageLanguage = language;
-            _coverageFontId = fontId;
-            _coverageResult = covered;
-            if (!covered)
-            {
-                // 每种语言只会记一次（探测结果已缓存），不会刷屏
-                Plugin.Log.LogInfo("ItemSpawnerPremium: 装饰字体缺少当前语言字形（"
-                    + DescribeMissing(missing) + "），界面改用游戏主字体");
-            }
-            return covered;
-        }
-
-        /// <summary>
-        /// 拼出探测用字符串：当前语言的 10 条 UI 文案。
-        /// 不探测物品名：一是 150+ 条开销大，二是 ResolveFont 在 Setup 最早期就会被调用，
-        /// 此时 ItemListView 目录还没建起来，取不到显示名。
-        /// 支持全大写的语言额外追加大写形态：分类/收藏按钮 label 用 FontStyles.UpperCase 渲染，
-        /// TMP 在 GenerateTextMesh 里逐字 char.ToUpper（反编译 TMP_Text.cs:3586），
-        /// 真正需要的字形是大写形态（fr 的 é→É、pl 的 ż→Ż）。
-        /// 同时取当前区域与不变区域两种大写结果：char.ToUpper 走 CurrentCulture，
-        /// 土耳其区域下 i→İ(U+0130) 与不变区域的 i→I 不同，两者都要覆盖才算安全。
-        /// </summary>
-        private static string BuildUiProbeText()
-        {
-            bool allCaps = LocalizedText.languageSupportsAllCaps;
-            System.Text.StringBuilder sb = new System.Text.StringBuilder(512);
-            for (int i = 0; i < UiTextKeys.Length; i++)
-            {
-                string value = Loc.Get(UiTextKeys[i]);
-                if (string.IsNullOrEmpty(value))
-                {
-                    continue;
-                }
-                sb.Append(value);
-                if (allCaps)
-                {
-                    sb.Append(value.ToUpperInvariant());
-                    sb.Append(value.ToUpper());
-                }
-            }
-            sb.Append(GetLanguageDiacritics());
-            return sb.ToString();
-        }
-
-        /// <summary>
-        /// 当前语言的完整变音字母集（大小写成对，含物品名会用到但 UI 文案里没出现的字符）。
-        ///
-        /// 为什么需要它：探测只取 10 条 UI 文案，但游戏侧物品名同样含扩展拉丁字符，
-        /// 且用到的字母不一定出现在 UI 文案里 —— 例如波兰语 "ZWÓJ ANTYSZNURA" 的 Ó、
-        /// 土耳其语 "ANTİ-HALAT MAKARASI" 的 İ、"KIRMIZI ÇITIRYEMİŞ" 的 Ç，
-        /// pl.json / tr.json 里都没有。逐条探测 150+ 物品名开销大且时机不对
-        /// （ResolveFont 在 Setup 最早期调用，此时目录还没建），
-        /// 改为按语言补一个固定的字母表常量：字符集封闭、零查询开销，且能覆盖物品名。
-        /// 只列该语言正字法真正使用的字母，不搞"全 Latin-1 全都要"——
-        /// 那会让装饰字体因为缺一个用不到的字形而被无谓地整体降级。
-        /// </summary>
-        private static string GetLanguageDiacritics()
-        {
-            switch (LocalizedText.CURRENT_LANGUAGE)
-            {
-                case LocalizedText.Language.Polish:
-                    return "ąĄćĆęĘłŁńŃóÓśŚźŹżŻ";
-                case LocalizedText.Language.Turkish:
-                    // 土耳其语特有的点/无点 i 对（ı U+0131 / İ U+0130）最容易缺字
-                    return "çÇğĞıİöÖşŞüÜ";
-                case LocalizedText.Language.German:
-                    return "äÄöÖüÜß";
-                case LocalizedText.Language.French:
-                    return "àÀâÂæÆçÇéÉèÈêÊëËîÎïÏôÔœŒùÙûÛüÜÿŸ";
-                case LocalizedText.Language.Italian:
-                    return "àÀèÈéÉìÌîÎòÒóÓùÙ";
-                case LocalizedText.Language.SpanishSpain:
-                case LocalizedText.Language.SpanishLatam:
-                    return "áÁéÉíÍñÑóÓúÚüÜ¡¿";
-                case LocalizedText.Language.BRPortuguese:
-                    return "áÁàÀâÂãÃçÇéÉêÊíÍóÓôÔõÕúÚ";
-                default:
-                    // 英语（以及未来新增的未知语言）：不补充。
-                    // 未知语言若真有扩展字符，UI 文案本身的探测仍会兜住。
-                    return string.Empty;
-            }
-        }
-
-        /// <summary>
-        /// 把缺失码点列表格式化成日志文本（去重后最多列 8 个，避免长串刷日志）。
-        ///
-        /// 必须去重：探测串刻意包含「原文 + ToUpperInvariant + ToUpper」三份（见 BuildUiProbeText），
-        /// 同一个缺失字符会在 HasCharacters 的 missing 数组里出现多次。
-        /// 实测土耳其语原始输出是 "U+011F U+011E U+011E U+015F U+015E U+015E U+011F U+0131 …共 17 个"
-        /// —— 8 个位置里有 3 个是重复的，既浪费展示位又让人误判缺失字符数量。
-        /// </summary>
-        private static string DescribeMissing(uint[] missing)
-        {
-            if (missing == null || missing.Length == 0)
-            {
-                return "字符表不可用";
-            }
-            List<uint> unique = new List<uint>(missing.Length);
-            for (int i = 0; i < missing.Length; i++)
-            {
-                if (!unique.Contains(missing[i]))
-                {
-                    unique.Add(missing[i]);
-                }
-            }
-            System.Text.StringBuilder sb = new System.Text.StringBuilder(64);
-            int shown = unique.Count < 8 ? unique.Count : 8;
-            for (int i = 0; i < shown; i++)
-            {
-                if (i > 0)
-                {
-                    sb.Append(' ');
-                }
-                sb.Append("U+").Append(unique[i].ToString("X4"));
-            }
-            if (unique.Count > shown)
-            {
-                sb.Append(" …共 ").Append(unique.Count).Append(" 个");
-            }
-            return sb.ToString();
         }
 
         /// <summary>
@@ -914,12 +750,20 @@ namespace ItemSpawnerEnhancement
             return _heartTexture;
         }
 
-        /// <summary>心形 SDF 采样分层：深入内部 → 红填充；仅边界内侧一圈 → 深暖棕勾线；外部 → 透明。</summary>
+        /// <summary>
+        /// 心形 SDF 采样分层：深入内部 → 红填充；仅边界内侧一圈 → 深暖棕勾线；外部 → 透明。
+        ///
+        /// 外部像素返回「相邻实色的 RGB + alpha=0」而不是纯黑透明：
+        /// 4×4 超采样对 RGBA 四通道等权平均，边缘像素若混入 rgb=(0,0,0)，
+        /// 50% 覆盖率处会得到 rgb = color.rgb × 0.5、a = 0.5，UI 走非预乘混合，
+        /// 等于把边缘颜色朝黑色拉，肉眼是一圈脏兮兮的暗边。保持 RGB 只降 alpha 即可得到干净渐变。
+        /// </summary>
         private static Color SampleHeart(float dist, float outlineHalf, Color fill, Color outline)
         {
             if (dist < -outlineHalf) { return fill; }   // 内部主体 → 红填充
             if (dist < 0f) { return outline; }          // 仅边界内侧 → 深暖棕勾线（外侧透明，消除尖点/两侧的溢出棕像素）
-            return new Color(0f, 0f, 0f, 0f);            // 外部 → 透明
+            Color edge = (outlineHalf > 0f) ? outline : fill;   // 紧邻外部的那一圈实色
+            return new Color(edge.r, edge.g, edge.b, 0f);
         }
 
         /// <summary>确保所有烘焙 Sprite 已生成（描边/白边/填充烘进纹理，0 层 Outline）。</summary>
@@ -1190,29 +1034,32 @@ namespace ItemSpawnerEnhancement
             return result;
         }
 
-        /// <summary>SDF 采样：sd 负值在圆角矩形内部，正值在外部。中心填充 → 奶油内描边 → 深墨外描边 → 透明。</summary>
+        /// <summary>
+        /// SDF 采样：sd 负值在圆角矩形内部，正值在外部。中心填充 → 奶油内描边 → 深墨外描边 → 透明。
+        ///
+        /// 最外层返回「相邻实色的 RGB + alpha=0」而非纯黑透明：4×4 超采样对 RGBA 等权平均，
+        /// 边缘像素若混入 rgb=(0,0,0)，50% 覆盖率处得到 rgb = color.rgb × 0.5、a = 0.5，
+        /// 而 UI 是非预乘混合 —— 结果是圆角与描边外沿一圈发暗的脏边。
+        /// 手绘风因最外圈本就是深咖啡描边而不明显，透明风因填充是深灰也看不出，
+        /// 但两者都在为一个不该存在的伪影付渲染代价。保持 RGB、只降 alpha 即得干净渐变。
+        /// </summary>
         private static Color SampleCard(float sd, float outlineWidth, float innerWidth, Color ink, Color inner, Color fill)
         {
             if (sd < -innerWidth) { return fill; }   // 深入中心 → 填充
             if (sd < 0f) { return inner; }           // 紧贴边界内侧 → 奶油白内描边
             if (sd < outlineWidth) { return ink; }   // 边界外侧 → 深墨外描边
-            return new Color(0f, 0f, 0f, 0f);        // 更外 → 透明
+            Color edge = (outlineWidth > 0f) ? ink : ((innerWidth > 0f) ? inner : fill);
+            return new Color(edge.r, edge.g, edge.b, 0f);
         }
 
         /// <summary>语言切换时刷新分类按钮的文字、字体与大小写样式（按钮 label 在创建时按当时语言固化）。</summary>
         internal static void RefreshButtonLabels()
         {
-            // 这里**不要**清 _coverageProbed：覆盖探测的缓存键已是「语言 + 字体实例 ID」，
-            // 语言一变键就不匹配、自动重探，显式清除只会抵消缓存。
-            // 曾经加过 `_coverageProbed = false;`，实测导致一次语言切换探测两遍 ——
-            // ItemListView.OnLanguageChanged 的顺序是 RefreshFonts()（已探测并写入缓存）
-            // → RefreshButtonLabels()（把刚写入的缓存清掉，ResolveFont 再探一次），
-            // 结果是每次切语言多跑一遍 HasCharacters（探测串含 10 条文案 + 两种大写形态 + 变音字母表，
-            // 数百字符）并多刷一条"改用游戏主字体"日志（土耳其语实测连续两条）。
             TMP_FontAsset font = ResolveFont();
             // 大小写样式随语言变化（俄/乌不全大写，见 CreateCategoryButton 注释）。
             // 必须在这里同步更新：否则从英文切到俄语后 label 仍停留在创建时固化的 UpperCase。
             FontStyles labelStyle = LocalizedText.languageSupportsAllCaps ? FontStyles.UpperCase : FontStyles.Normal;
+
             for (int i = 0; i < _categoryButtonLabels.Count; i++)
             {
                 TextMeshProUGUI label = _categoryButtonLabels[i];
@@ -1337,6 +1184,10 @@ namespace ItemSpawnerEnhancement
             Button button = go.GetComponent<Button>();
             button.targetGraphic = image;
             button.transition = Selectable.Transition.None;
+            // 手柄导航（与分类按钮同理，见 CreateCategoryButton）
+            Navigation favNav = button.navigation;
+            favNav.mode = Navigation.Mode.Automatic;
+            button.navigation = favNav;
 
             button.onClick.AddListener(OnFavoriteToggled);
 
@@ -1348,6 +1199,13 @@ namespace ItemSpawnerEnhancement
             exit.callback.AddListener(delegate { RefreshFavoriteButtonColor(); });
             trigger.triggers.Add(enter);
             trigger.triggers.Add(exit);
+            // 手柄聚焦反馈（同分类按钮：transition 为 None，否则手柄玩家看不出焦点在哪）
+            EventTrigger.Entry favSelect = new EventTrigger.Entry { eventID = EventTriggerType.Select };
+            favSelect.callback.AddListener(delegate { if (_view == null || !_view.FavoritesOnly) image.sprite = _btnHoverSprite; });
+            EventTrigger.Entry favDeselect = new EventTrigger.Entry { eventID = EventTriggerType.Deselect };
+            favDeselect.callback.AddListener(delegate { RefreshFavoriteButtonColor(); });
+            trigger.triggers.Add(favSelect);
+            trigger.triggers.Add(favDeselect);
 
             // 标签
             GameObject labelGo = new GameObject("Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
@@ -1387,29 +1245,42 @@ namespace ItemSpawnerEnhancement
 
         private static void OnFavoriteToggled()
         {
+            // UI 回调必须自己兜住异常。UnityEngine.UI 的 ExecuteEvents.Execute 确实包了 try/catch
+            // 并 Debug.LogException，所以异常不会打断 EventSystem 派发；但那条日志不带本模组前缀，
+            // 且状态会停在半更新（_currentMajor 已改、列表未重建、按钮高亮未刷新）——
+            // 玩家看到的是"点了收藏按钮，高亮变了但列表没变"。这里失败即回滚视觉状态。
             if (_view == null)
             {
                 return;
             }
-            // 以 ItemListView 为唯一数据源：读当前状态翻转后同步回去
-            bool nowFavorite = !_view.FavoritesOnly;
-            _view.SetFavoritesOnly(nowFavorite);
-            if (nowFavorite)
+            MajorCategory previousMajor = _currentMajor;
+            try
             {
-                // 收藏开启：分类视觉取消选中（哨兵值，7 个分类按钮都不高亮），数据层分类设为"全部"（不过滤分类，只看收藏）
-                _currentMajor = (MajorCategory)(-1);
-                _view.SetMajor(MajorCategory.All);
+                // 以 ItemListView 为唯一数据源：读当前状态翻转后同步回去
+                bool nowFavorite = !_view.FavoritesOnly;
+                _view.SetFavoritesOnly(nowFavorite);
+                if (nowFavorite)
+                {
+                    // 收藏开启：分类视觉取消选中（哨兵值，7 个分类按钮都不高亮），数据层分类设为"全部"（不过滤分类，只看收藏）
+                    _currentMajor = (MajorCategory)(-1);
+                    _view.SetMajor(MajorCategory.All);
+                }
+                else
+                {
+                    // 收藏关闭：回到"全部"分类
+                    _currentMajor = MajorCategory.All;
+                }
+                for (int i = 0; i < _categoryButtons.Count; i++)
+                {
+                    RefreshButtonColor(i);
+                }
+                RefreshFavoriteButtonColor();
             }
-            else
+            catch (Exception ex)
             {
-                // 收藏关闭：回到"全部"分类
-                _currentMajor = MajorCategory.All;
+                _currentMajor = previousMajor;
+                Plugin.Log.LogError("ItemSpawnerPremium: 切换收藏筛选失败: " + ex);
             }
-            for (int i = 0; i < _categoryButtons.Count; i++)
-            {
-                RefreshButtonColor(i);
-            }
-            RefreshFavoriteButtonColor();
         }
 
         private static void RefreshFavoriteButtonColor()
@@ -1445,6 +1316,13 @@ namespace ItemSpawnerEnhancement
             Button button = go.GetComponent<Button>();
             button.targetGraphic = image;
             button.transition = Selectable.Transition.None; // 状态由代码统一换 Sprite
+            // 手柄导航：Navigation.defaultNavigation 已是 Mode.Automatic（UnityEngine.UI\Navigation.cs），
+            // 但 Automatic 只在**方向上有其他 Selectable** 时才走得通，而本面板的可导航控件
+            // （分类按钮、收藏按钮、搜索框、物品卡片）都是运行时建的，Automatic 会按屏幕位置自动求解，
+            // 这里显式写出来是为了让"手柄能在按钮之间移动"成为有意声明的行为而不是巧合。
+            Navigation nav = button.navigation;
+            nav.mode = Navigation.Mode.Automatic;
+            button.navigation = nav;
 
             MajorCategory captured = major;
             button.onClick.AddListener(() => OnMajorSelected(captured));
@@ -1457,6 +1335,15 @@ namespace ItemSpawnerEnhancement
             exit.callback.AddListener(delegate { RefreshButtonColor(_categoryButtons.IndexOf(button)); });
             trigger.triggers.Add(enter);
             trigger.triggers.Add(exit);
+            // 手柄导航反馈：transition 为 None（三态由代码换 Sprite），所以 EventSystem 的选中
+            // 本身没有任何可见效果 —— 手柄玩家摇杆移动时完全看不出焦点在哪。
+            // 复用 hover Sprite 表示"当前聚焦"，与鼠标悬停语义一致。
+            EventTrigger.Entry select = new EventTrigger.Entry { eventID = EventTriggerType.Select };
+            select.callback.AddListener(delegate { if (captured != _currentMajor) image.sprite = _btnHoverSprite; });
+            EventTrigger.Entry deselect = new EventTrigger.Entry { eventID = EventTriggerType.Deselect };
+            deselect.callback.AddListener(delegate { RefreshButtonColor(_categoryButtons.IndexOf(button)); });
+            trigger.triggers.Add(select);
+            trigger.triggers.Add(deselect);
 
             // 标签（深暖棕文字、无描边、无加粗，浅色底上高对比 = 锐利）
             GameObject labelGo = new GameObject("Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
@@ -1526,17 +1413,28 @@ namespace ItemSpawnerEnhancement
 
         private static void OnMajorSelected(MajorCategory major)
         {
-            _currentMajor = major;
-            if (_view != null)
+            // 与 OnFavoriteToggled 同理：UI 回调自己兜住异常并回滚视觉状态，
+            // 否则失败时会停在「按钮已高亮、列表没变」的半更新态，且日志不带本模组前缀。
+            MajorCategory previousMajor = _currentMajor;
+            try
             {
-                _view.SetMajor(major);
-                _view.SetFavoritesOnly(false);   // 选中分类时取消收藏（互斥）
+                _currentMajor = major;
+                if (_view != null)
+                {
+                    _view.SetMajor(major);
+                    _view.SetFavoritesOnly(false);   // 选中分类时取消收藏（互斥）
+                }
+                for (int i = 0; i < _categoryButtons.Count; i++)
+                {
+                    RefreshButtonColor(i);
+                }
+                RefreshFavoriteButtonColor();
             }
-            for (int i = 0; i < _categoryButtons.Count; i++)
+            catch (Exception ex)
             {
-                RefreshButtonColor(i);
+                _currentMajor = previousMajor;
+                Plugin.Log.LogError("ItemSpawnerPremium: 切换分类失败: " + ex);
             }
-            RefreshFavoriteButtonColor();
         }
     }
 }

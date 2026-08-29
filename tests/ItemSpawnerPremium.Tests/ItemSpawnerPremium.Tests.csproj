@@ -37,6 +37,13 @@
   <ItemGroup>
     <Compile Include="..\..\SearchText.cs" Link="Linked\SearchText.cs" />
     <Compile Include="..\..\SearchRanking.cs" Link="Linked\SearchRanking.cs" />
+    <!--
+      InputKeys 是 2.3.0 从 Plugin.IsTextInputKey 提纯出来的按键分类判定。
+      它是三处"架构盲区"（MonoBehaviour 生命周期 / TMP 运行时 / 输入焦点）里唯一
+      可以全域穷举的一块：参数是 KeyCode 的底层 int，测试能对 0..678 逐值断言。
+      2.2.0 已发布的 F5 死锁回归就出在这里，因此必须被链接进测试工程。
+    -->
+    <Compile Include="..\..\InputKeys.cs" Link="Linked\InputKeys.cs" />
     <Compile Include="..\..\ItemCatalog.cs" Link="Linked\ItemCatalog.cs" />
     <Compile Include="..\..\ItemCatalogMethods.cs" Link="Linked\ItemCatalogMethods.cs" />
     <Compile Include="..\..\FavoriteCodec.cs" Link="Linked\FavoriteCodec.cs" />
@@ -58,6 +65,21 @@
   <ItemGroup>
     <EmbeddedResource Include="..\..\Localization\*.json">
       <LogicalName>ItemSpawnerPremium.Tests.Localization.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!--
+    刻意内嵌一个**语言代码不在白名单里**的假资源（FakeLocalization\klingon.json），
+    资源名同样带 ".Localization." marker，所以 LocalizationCatalog 的 marker 解析一定会看到它。
+
+    为什么需要它：原来的 UnregisteredLanguageCodeIsRejectedByWhitelist 只直接调
+    IsKnownLanguageCode（一个纯查表函数），从未验证**构造函数真的按白名单过滤了资源**。
+    实测把构造函数里的 `if (!IsKnownLanguageCode(...))` 改成 `if (false)` 后测试仍全绿。
+    有了这个假资源，过滤一旦失效 LoadedLanguageCount 就会变成 16，测试立刻失败。
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="FakeLocalization\klingon.json">
+      <LogicalName>ItemSpawnerPremium.Tests.Localization.klingon.json</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 

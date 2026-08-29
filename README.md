@@ -6,11 +6,11 @@ A standalone item spawner for PEAK. Press **F5** to open the browser and spawn a
 
 > A continuation of the original `quackandcheese-ItemSpawner`, rebuilt as a single-DLL standalone mod.
 
-Verified on PEAK `2.3.a` (Steam build 24961053, 2026-08-28).
+The current release was developed and tested against PEAK `2.3.a` (Steam build 24961053, 2026-08-28). Later game updates may add or rename items.
 
 ## Features
 
-- **Localized item names** — the UI is translated into all 15 game languages; item names follow the game's own localization table, and if a language column is missing there the English name is shown instead.
+- **Localized item names** — the UI is translated into all 15 game languages. Item names come from the game's own localization table; if that table has no column for your language the English name is shown, if it has no entry for the item at all the internal item name (or the prefab name) is shown, and a small number of items that the game never localized use a name bundled with this mod.
 - **Smart search + Pinyin** (full spelling and initials, e.g. `regouchang` / `rgc` finds 热狗肠). Pinyin matching is enabled when the game language is Simplified or Traditional Chinese.
 - **Multi-tag categories**: All / Tools / Food / Mystical / Equipment / Consumables / Misc.
 - **Favorites**: right-click to toggle, heart marker, config persistence, favorites filter.
@@ -57,17 +57,19 @@ release order.
 
 `tests/ItemSpawnerPremium.Tests` is a `net8.0` NUnit project with **no Unity or BepInEx dependency**: it
 source-links only the pure-logic files (`SearchText.cs`, `SearchRanking.cs`, `ItemCatalog*.cs`,
-`FavoriteCodec.cs`, `Localization/*`, `TinyPinyin/*`) and embeds the 15 language JSONs under the same
-resource names the shipped DLL uses, so the real marker parsing and English fallback chain are exercised.
+`FavoriteCodec.cs`, `Localization/Loc.cs`, `Localization/LocalizationCatalog.cs`, `TinyPinyin/*`) and
+embeds the 15 language JSONs under the same resource names the shipped DLL uses, so the real marker
+parsing and English fallback chain are exercised. `Localization/GameLanguage.cs` is deliberately not
+linked — it references the game's `LocalizedText` type.
 
 ```
 dotnet test tests/ItemSpawnerPremium.Tests/ItemSpawnerPremium.Tests.csproj
 ```
 
-Covered: search normalisation and pinyin conversion (including the full BMP Han sweep for the decode
-bound guard), ranking tiers and culture-independence, the catalog sort's total-order properties, hidden
-rule vs. category table complementarity, favorite JSON round-trips and corrupt-input recovery, and
-localization key completeness across all 15 languages.
+Covered: search normalisation and pinyin conversion (including a sweep of the whole BMP Han range
+asserting no character throws during decode), ranking tiers and culture-independence, the catalog
+sort's total-order properties, hidden rule vs. category table complementarity, favorite JSON
+round-trips and corrupt-input recovery, and localization key completeness across all 15 languages.
 
 ## Project structure
 
@@ -88,7 +90,7 @@ localization key completeness across all 15 languages.
 ## Acknowledgements
 
 - **Original mod author:** [quackandcheese](https://thunderstore.io/c/peak/p/quackandcheese/ItemSpawner/) — `quackandcheese-ItemSpawner` (0.1.4).
-- **Code reference:** [ItemSpawnerEnhanced](https://thunderstore.io/c/peak/p/lllei/ItemSpawnerEnhanced/) by lllei.
+- **Code reference:** [ItemSpawnerEnhanced](https://thunderstore.io/c/peak/p/lllei/ItemSpawnerEnhanced/) by lllei — the localization catalog and language-code mapping in this mod are derived from it (MIT; see the notices file).
 - **TinyPinyin:** [TinyPinyin.Net](https://github.com/hstarorg/TinyPinyin.Net) (MIT, © 2017 Jay.M.Hu).
 
 ## License

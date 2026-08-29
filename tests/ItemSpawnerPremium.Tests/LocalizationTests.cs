@@ -94,6 +94,83 @@ namespace ItemSpawnerPremium.Tests
         }
 
         [Test]
+        public void ConstructorActuallyFiltersUnregisteredResourcesNotJustExposesThePredicate()
+        {
+            // 上一条测试只调 IsKnownLanguageCode —— 一个纯查表函数。它**从未验证构造函数
+            // 真的用了这个白名单**：实测把构造函数里的 `if (!IsKnownLanguageCode(...))`
+            // 改成 `if (false)` 后，原来的测试仍然全绿。
+            //
+            // 测试工程因此内嵌了一个假资源 ItemSpawnerPremium.Tests.Localization.klingon.json
+            // （见 csproj 的 FakeLocalization 那个 ItemGroup）。它带着 ".Localization." marker，
+            // 所以 marker 解析一定会看到它；能否被拦下完全取决于白名单是否生效。
+            //
+            // 断言 15 而不是 16：假资源存在的前提下数字仍是 15，这正是过滤生效的证据。
+            List<string> warnings = new List<string>();
+            LocalizationCatalog catalog = new LocalizationCatalog(
+                typeof(Loc).Assembly,
+                delegate (string m) { warnings.Add(m); });
+
+            Assert.That(catalog.LoadedLanguageCount, Is.EqualTo(15),
+                "内嵌了 16 个 .Localization.*.json（15 真 + 1 个假语言 klingon），"
+                + "加载数应仍为 15；得到 " + catalog.LoadedLanguageCount + " 说明构造函数没有按白名单过滤");
+
+            bool mentionedKlingon = false;
+            for (int i = 0; i < warnings.Count; i++)
+            {
+                if (warnings[i].IndexOf("klingon", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    mentionedKlingon = true;
+                }
+            }
+            Assert.That(mentionedKlingon, Is.True,
+                "被过滤的资源必须留下一条含资源名的告警，否则新增语言忘记登记白名单时会静默回退英文、"
+                + "排查成本极高。实际告警: " + string.Join(" / ", warnings.ToArray()));
+
+            // 顺带确认假资源的内容真没进去：klingon.json 里 catAll = "KLINGON"
+            Assert.That(catalog.Get("klingon", "catAll"), Is.EqualTo(_catalog.Get("en", "catAll")),
+                "未登记语言应回退英文，而不是返回假资源里的值");
+        }
+
+        [Test]
+        public void FakeKlingonResourceIsActuallyEmbedded()
+        {
+            // 前一条测试的有效性依赖假资源真的被内嵌了。若 csproj 的 EmbeddedResource 项被删掉，
+            // 那条测试会退化成"15 == 15"的重言式而静默失去价值 —— 这里直接检查资源清单。
+            string[] names = typeof(Loc).Assembly.GetManifestResourceNames();
+            bool found = false;
+            for (int i = 0; i < names.Length; i++)
+            {
+                if (string.Equals(names[i], "ItemSpawnerPremium.Tests.Localization.klingon.json",
+                        StringComparison.Ordinal))
+                {
+                    found = true;
+                }
+            }
+            Assert.That(found, Is.True,
+                "假语言资源未被内嵌，ConstructorActuallyFiltersUnregisteredResources... 已失去区分力。"
+                + "检查 csproj 里 FakeLocalization\\klingon.json 的 EmbeddedResource/LogicalName 配置");
+        }
+
+        [Test]
+        public void GetFallsBackToEnglishThenToTheKeyItself()
+        {
+            // Get 的回退链共三段：命中语言且值非空白 → 英文 → key 本身。
+            // 这里覆盖后两段的组合，补上原先只测了单段的缺口。
+            //
+            // 注意「语言命中但值为空白 → 回退英文」这一小段仍无法从公开构造函数触发：
+            // 构造函数只从内嵌资源读，而 15 个真实 JSON 的值都非空白（EveryJsonFileParses... 强制如此），
+            // 而给某个**已登记**语言再内嵌一份空白资源会与真资源同名、由资源枚举顺序决定谁胜出，
+            // 属于不确定行为，不值得为一个 IsNullOrWhiteSpace 判断引入。已在报告中记录为未覆盖。
+            string english = _catalog.Get("en", "catAll");
+            Assert.That(_catalog.Get("zh-Hans", "catNonexistent"), Is.EqualTo("catNonexistent"),
+                "已加载语言缺 key 且英文也缺 → 返回 key 本身");
+            Assert.That(_catalog.Get("", "catAll"), Is.EqualTo(english),
+                "空语言码不在字典里 → 回退英文");
+            Assert.That(_catalog.Get("klingon", "catAll"), Is.EqualTo(english),
+                "被白名单挡下的语言码 → 回退英文");
+        }
+
+        [Test]
         public void EmptyAssemblyProducesCatalogThatDegradesToKeys()
         {
             // 内嵌资源整体缺失时不能抛异常，只能退化为显示 key

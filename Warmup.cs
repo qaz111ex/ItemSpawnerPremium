@@ -16,8 +16,8 @@ namespace ItemSpawnerEnhancement
     ///    同时置 blocksRaycasts=false，防止不可见面板拦截点击。
     ///
     /// 除预热外还兼任「主线程消费者」：Config 的 SettingChanged 在调用方线程同步派发，
-    /// 样式热重载需要的 Unity API 全是主线程专属，故由本组件的 Update 消费
-    /// <see cref="Plugin.StyleChangeRequested"/> 标志。
+    /// 样式热重载与物品隐藏开关需要的 Unity API 全是主线程专属，故由本组件的 Update 消费
+    /// <see cref="Plugin.StyleChangeRequested"/> 与 <see cref="Plugin.HideUnusedChangeRequested"/> 两个标志。
     ///
     /// 常驻（不 Destroy）：<see cref="Update"/> 每 0.5 秒轮询一次；
     /// 窗口是 DontDestroyOnLoad 单例（全程只有一个实例），预热过一次后由 <see cref="_warmed"/> 标志跳过，
@@ -33,12 +33,14 @@ namespace ItemSpawnerEnhancement
         private int _warmupAttempts;                               // 已尝试 Setup 的次数（达到 MaxWarmupAttempts 后放弃）
         private bool _primed;                                      // 渲染 priming 已成功完成（GPU 预热，失败下次 loading 重试）
         private bool _primingRunning;                              // 渲染 priming 协程运行中，防并发
+        private ItemDatabase _itemDatabase;                        // ItemDatabase 首次取到后缓存（Instance 只缓存成功结果，未就绪时每次都会 Resources.Load）
 
         private void Update()
         {
             // 样式热重载必须立即响应（玩家在配置界面切样式后应当当帧看到变化），
-            // 因此放在 0.5 秒节流判断之前。
+            // 因此放在 0.5 秒节流判断之前。物品隐藏开关同理。
             ConsumeStyleChangeRequest();
+            ConsumeHideUnusedChangeRequest();
 
             // 每 0.5 秒检查一次（unscaledTime 不受时间缩放/暂停影响）
             if (Time.unscaledTime < _nextCheckTime)
@@ -47,6 +49,47 @@ namespace ItemSpawnerEnhancement
             }
             _nextCheckTime = Time.unscaledTime + 0.5f;
             TryStartWarmup();
+        }
+
+        /// <summary>
+        /// 在主线程消费物品隐藏开关变更请求（标志由 Plugin 的 ConfigEntry.SettingChanged 回调置位）。
+        ///
+        /// 为什么由这里消费而不是回调里直接做：BepInEx 的 SettingChanged 在调用方线程同步派发，
+        /// 而取到 ItemListView 需要 `Window != null`（UnityEngine.Object 重载运算符，进原生调用）
+        /// 与 `GetComponent<T>()` —— 都是主线程专属 API。
+        ///
+        /// 标志在成功交给 ItemListView 之后才清除：若窗口/视图尚未创建（玩家在主菜单改配置），
+        /// 保留标志等下一帧重试，不静默丢失这次变更。ItemListView 自身还有一层
+        /// 「构建中则保留请求」的处理（见其 Update），两层都是"宁可延后也不丢事件"。
+        /// </summary>
+        private void ConsumeHideUnusedChangeRequest()
+        {
+            if (!Plugin.HideUnusedChangeRequested)
+            {
+                return;
+            }
+            ItemSpawnerPremiumWindow window = Plugin.Window;
+            if (window == null)
+            {
+                return; // 窗口尚未创建，保留标志，等窗口建好后再应用
+            }
+            ItemListView view;
+            try
+            {
+                view = window.GetComponent<ItemListView>();
+            }
+            catch (Exception ex)
+            {
+                Plugin.HideUnusedChangeRequested = false;
+                Plugin.Log.LogWarning("ItemSpawnerPremium: 获取列表视图失败，本次隐藏开关变更已丢弃: " + ex.Message);
+                return;
+            }
+            if (view == null)
+            {
+                return; // 视图尚未挂载（面板还没建过），保留标志
+            }
+            Plugin.HideUnusedChangeRequested = false;
+            view.RequestRefresh();
         }
 
         /// <summary>
@@ -103,7 +146,15 @@ namespace ItemSpawnerEnhancement
                 }
                 else
                 {
-                    ItemDatabase db = SingletonAsset<ItemDatabase>.Instance;
+                    // SingletonAsset<T>.Instance 只缓存**成功**结果（Zorro.Core\SingletonAsset.cs:14-21：
+                    // `if (_instance == null) { _instance = Resources.Load<T>(...); }`），
+                    // 未就绪期间每次访问都是一次完整的 Resources.Load。本方法每 0.5 秒跑一次，
+                    // 故自己缓存首次成功的引用，避免就绪前反复空跑原生加载。
+                    if (_itemDatabase == null)
+                    {
+                        _itemDatabase = SingletonAsset<ItemDatabase>.Instance;
+                    }
+                    ItemDatabase db = _itemDatabase;
                     if (db == null || db.Objects == null || db.Objects.Count == 0)
                     {
                         return;

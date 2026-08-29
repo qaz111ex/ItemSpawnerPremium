@@ -38,10 +38,26 @@ namespace ItemSpawnerEnhancement
         {
             if (_catalog == null)
             {
-                _catalog = new LocalizationCatalog(typeof(Loc).Assembly, WarningLogger);
+                // 注意 WarningLogger 是**每次读取**而非构造期捕获：传进去的是一个转发委托，
+                // 而不是 WarningLogger 当前的值。若直接传 WarningLogger，catalog 会永久固定住
+                // 首次 Get 时刻的那个值 —— 一旦有代码在 Plugin.Awake 注入之前间接调到 Get，
+                // logger 就被永久固定为 null，LocalizationCatalog 的三条诊断
+                //（未登记语言码 / 单文件损坏 / 全部加载失败）从此永远静默，
+                // 而那恰恰是最需要它们的场景。语言代码提供者本来就是每次调用时读，这里对齐它。
+                _catalog = new LocalizationCatalog(typeof(Loc).Assembly, ForwardWarning);
             }
             string code = (LanguageCodeProvider != null) ? LanguageCodeProvider() : "en";
             return _catalog.Get(code, key);
+        }
+
+        /// <summary>把告警转发给当前的 <see cref="WarningLogger"/>（每次调用时读，见 Get 的注释）。</summary>
+        private static void ForwardWarning(string message)
+        {
+            Action<string> logger = WarningLogger;
+            if (logger != null)
+            {
+                logger(message);
+            }
         }
     }
 }

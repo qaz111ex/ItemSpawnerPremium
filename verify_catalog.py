@@ -4,7 +4,7 @@
 
 对照 item_truth.json（游戏资源真值，213 个物品 prefab）校验三条不变量：
 
-  1. 隐藏 / 可见的切分符合预期（默认 60 / 153）。切分规则复刻
+  1. 隐藏 / 可见的切分符合预期（默认 62 / 151）。切分规则复刻
      ItemCatalogMethods.cs 的 IsHidden：HiddenExact 精确匹配、HiddenPrefixes 前缀、
      HiddenSubstrings 子串，全部大小写不敏感。
   2. ItemTagMap 的键集合与「可见集合」精确一一对应：
@@ -12,7 +12,11 @@
      - extra  ：表里有但被隐藏规则挡掉（表项永远用不到）
      - dead   ：表里有但游戏里根本没有这个 prefab（历史遗留死键）
      三者都必须为 0。
-  3. ItemTagMap 无重复键、无 ItemCategory.None。
+  3. ItemTagMap 无重复键、无「无分类」值（ItemCategory.None / (ItemCategory)0 /
+     default(ItemCategory) / 裸 0 —— 它们在 C# 里全是同一个值，只写一种等于给
+     绕过门禁留了后门）。
+
+另外输出一段 INFO 级的「隐藏规则贡献度」分析（不参与成败判定，见 report_rule_coverage）。
 
 为什么需要它：ItemCatalog.cs 顶部仍带 auto-generated 头，但表内容早已经过人工语义
 修订，与 scripts/gen_category_multi.py 的输出存在大量差异。任何人重跑生成脚本都会
@@ -20,7 +24,9 @@
 
 用法：
     python verify_catalog.py [--catalog ItemCatalog.cs] [--truth <item_truth.json>]
-                             [--expect-hidden 60] [--expect-visible 153]
+                             [--expect-hidden 62] [--expect-visible 151]
+真值文件路径优先级：--truth > 环境变量 ITEMSPAWNER_TRUTH_JSON > 脚本内默认值。
+（真值文件不在 git 仓库内，换机器时用环境变量比改脚本更不容易污染 diff。）
 退出码：0 = 全部通过；1 = 存在违规；2 = 输入文件缺失/解析失败。
 """
 
@@ -32,6 +38,18 @@ import sys
 from typing import NoReturn
 
 DEFAULT_TRUTH = r"D:\zhuanban\youhua\item_truth.json"
+TRUTH_ENV_VAR = "ITEMSPAWNER_TRUTH_JSON"
+
+# ItemTagMap 里表示「没有分类」的所有等价写法。ItemCategory.None、(ItemCategory)0、
+# default(ItemCategory) 与裸 0 编译后完全相同，只认第一种的话，把值改成后三种就能
+# 静默塞进一条无分类表项（实测过：旧版脚本对 (ItemCategory)0 返回 exit=0）。
+NONE_VALUE_RE = re.compile(
+    r"\bItemCategory\s*\.\s*None\b"
+    r"|\(\s*ItemCategory\s*\)\s*0\b"
+    r"|\bdefault\s*\(\s*ItemCategory\s*\)"
+    r"|\bdefault\b"
+    r"|^\s*0\s*$"
+)
 
 
 def fail(msg, code=2):
@@ -41,8 +59,87 @@ def fail(msg, code=2):
 
 
 def read_text(path):
-    with open(path, "r", encoding="utf-8") as f:
+    # utf-8-sig 对「有 BOM」和「无 BOM」两种 UTF-8 都能正确读取（有 BOM 时吃掉它，
+    # 无 BOM 时行为等同 utf-8）。ItemCatalog.cs 的 BOM 状态历史上变动过，别写死 utf-8。
+    with open(path, "r", encoding="utf-8-sig") as f:
         return f.read()
+
+
+def strip_comments(text):
+    """去掉 C# 的 // 行注释与 /* */ 块注释，保留字符串/字符字面量原样。
+
+    为什么必须先保护字面量再去注释：prefab 名理论上可以含 "//"（资源路径风格的名字），
+    朴素的 re.sub(r"//.*") 会把这样一条表项的后半截连同 '}' 一起吃掉，进而让解析
+    静默漏掉条目。反之，不去注释同样危险 —— 把一条真实表项整行注释掉曾经可以通过
+    门禁（parse_tag_map 不去注释，而 parse_string_set 去注释，两者标准不一致）。
+
+    已知限制：不处理 C# 11 的原始字符串字面量（三引号形式），本代码库不用。
+    """
+    out = []
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        # 逐字复制字符串字面量（含 @"" 逐字字符串与 $"" 内插字符串的外层引号）
+        if c == '"':
+            verbatim = i > 0 and text[i - 1] == "@"
+            out.append(c)
+            i += 1
+            while i < n:
+                ch = text[i]
+                if verbatim:
+                    if ch == '"':
+                        if i + 1 < n and text[i + 1] == '"':  # "" 是转义的引号
+                            out.append('""')
+                            i += 2
+                            continue
+                        out.append(ch)
+                        i += 1
+                        break
+                    out.append(ch)
+                    i += 1
+                else:
+                    if ch == "\\" and i + 1 < n:
+                        out.append(text[i:i + 2])
+                        i += 2
+                        continue
+                    out.append(ch)
+                    i += 1
+                    if ch == '"':
+                        break
+                    if ch == "\n":  # 非逐字字符串不能跨行，遇换行按未闭合处理
+                        break
+            continue
+        if c == "'":
+            out.append(c)
+            i += 1
+            while i < n:
+                ch = text[i]
+                if ch == "\\" and i + 1 < n:
+                    out.append(text[i:i + 2])
+                    i += 2
+                    continue
+                out.append(ch)
+                i += 1
+                if ch == "'" or ch == "\n":
+                    break
+            continue
+        if c == "/" and i + 1 < n:
+            nxt = text[i + 1]
+            if nxt == "/":
+                j = text.find("\n", i)
+                i = n if j < 0 else j  # 保留换行，行号/结构不错位
+                continue
+            if nxt == "*":
+                j = text.find("*/", i + 2)
+                # 用换行替换块注释，避免把上下两行粘成一行（会造出假的 { "x", y } 组合）
+                chunk = text[i:(n if j < 0 else j + 2)]
+                out.append("\n" * chunk.count("\n"))
+                i = n if j < 0 else j + 2
+                continue
+        out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def slice_block(src, header_pattern, what):
@@ -70,7 +167,6 @@ def parse_tag_map(src):
 
 def parse_string_set(src, field, what):
     body = slice_block(src, field + r"\s*=\s*new\s+(?:HashSet<\s*string\s*>|string\s*\[\s*\])[^{]*", what)
-    body = re.sub(r"//[^\n]*", "", body)
     return re.findall(r'"([^"]*)"', body)
 
 
@@ -90,21 +186,85 @@ def is_hidden(prefab, exact_lower, prefixes_lower, substrings_lower):
     return False
 
 
+def count_hidden(prefabs, exact_lower, prefixes_lower, substrings_lower):
+    return sum(1 for p in prefabs
+               if is_hidden(p, exact_lower, prefixes_lower, substrings_lower))
+
+
+def report_rule_coverage(prefabs, exact, prefixes, substrings, baseline_hidden):
+    """逐条把隐藏规则拿掉，看隐藏数是否变化，以此判断这条规则有没有独占贡献。
+
+    为什么只打 INFO 不失败：前瞻性防御规则是合法的（"_TEMP" 在当前 213 项真值里 0
+    命中，但保留它能挡住日后新增的临时资源）。而「冗余」信号本身很有价值 ——
+    HiddenExact 里被前缀/子串完全覆盖的项，一度让前缀/子串规则可以被整条删掉而
+    不改变 60/153 切分，等于让切分数断言对这些规则失效。清完冗余项之后这里应该是
+    0 项，可以当回归信号看。
+    """
+    exact_lower = set(s.lower() for s in exact)
+    prefixes_lower = [s.lower() for s in prefixes if s]
+    substrings_lower = [s.lower() for s in substrings if s]
+    truth_lower = set(p.lower() for p in prefabs)
+
+    contributing, idle = [], []
+    for p in prefixes:
+        rest = [x for x in prefixes_lower if x != p.lower()]
+        n = count_hidden(prefabs, exact_lower, rest, substrings_lower)
+        (contributing if n != baseline_hidden else idle).append("HiddenPrefixes:" + p)
+    for s in substrings:
+        rest = [x for x in substrings_lower if x != s.lower()]
+        n = count_hidden(prefabs, exact_lower, prefixes_lower, rest)
+        (contributing if n != baseline_hidden else idle).append("HiddenSubstrings:" + s)
+
+    redundant_exact, absent_exact = [], []
+    for e in exact:
+        rest = set(x for x in exact_lower if x != e.lower())
+        n = count_hidden(prefabs, rest, prefixes_lower, substrings_lower)
+        if n != baseline_hidden:
+            contributing.append("HiddenExact:" + e)
+        elif e.lower() in truth_lower:
+            redundant_exact.append(e)  # 真值里有这个 prefab，但已被前缀/子串挡住
+        else:
+            absent_exact.append(e)     # 真值里根本没有这个 prefab
+
+    print("")
+    print("隐藏规则贡献度（INFO，不影响退出码）")
+    print("  有独占贡献             : %d 条" % len(contributing))
+    if idle:
+        print("  前缀/子串当前 0 命中   : %d 条 -> %s" % (len(idle), ", ".join(idle)))
+        print("    （前瞻性防御规则，允许存在；但删掉它们不会被切分数断言发现）")
+    else:
+        print("  前缀/子串当前 0 命中   : 0 条")
+    if redundant_exact:
+        print("  HiddenExact 冗余项     : %d 项 -> %s" % (len(redundant_exact), ", ".join(redundant_exact)))
+        print("    （已被前缀/子串完全覆盖，删掉不改变切分；建议清理）")
+    else:
+        print("  HiddenExact 冗余项     : 0 项")
+    if absent_exact:
+        print("  HiddenExact 真值中不存在: %d 项 -> %s" % (len(absent_exact), ", ".join(absent_exact)))
+
+
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
+    env_truth = os.environ.get(TRUTH_ENV_VAR)
     ap = argparse.ArgumentParser()
     ap.add_argument("--catalog", default=os.path.join(here, "ItemCatalog.cs"))
-    ap.add_argument("--truth", default=DEFAULT_TRUTH)
-    ap.add_argument("--expect-hidden", type=int, default=60)
-    ap.add_argument("--expect-visible", type=int, default=153)
+    ap.add_argument("--truth", default=(env_truth if env_truth else DEFAULT_TRUTH))
+    ap.add_argument("--expect-hidden", type=int, default=62)
+    ap.add_argument("--expect-visible", type=int, default=151)
     args = ap.parse_args()
 
     if not os.path.isfile(args.catalog):
         fail("找不到 catalog 文件：%s" % args.catalog)
     if not os.path.isfile(args.truth):
-        fail("找不到真值文件：%s（用 --truth 指定路径）" % args.truth)
+        fail("找不到真值文件：%s\n"
+             "  该文件不在 git 仓库内，换机器时按以下优先级指定：\n"
+             "    1) 命令行 --truth <路径>\n"
+             "    2) 环境变量 %s\n"
+             "    3) 脚本内默认值 DEFAULT_TRUTH（%s）"
+             % (args.truth, TRUTH_ENV_VAR, DEFAULT_TRUTH))
 
-    src = read_text(args.catalog)
+    # 先剥注释再解析：注释掉的表项不算表项，注释掉的隐藏规则也不算规则。
+    src = strip_comments(read_text(args.catalog))
     try:
         truth = json.loads(read_text(args.truth))
     except ValueError as ex:
@@ -142,7 +302,7 @@ def main():
     missing = sorted(p for p in visible if p.lower() not in map_lower)
     extra = sorted(map_lower[k] for k in map_lower if k in truth_lower and k not in visible_lower)
     dead = sorted(map_lower[k] for k in map_lower if k not in truth_lower)
-    none_tags = sorted(k for k, v in entries if re.search(r"\bItemCategory\.None\b", v))
+    none_tags = sorted(k for k, v in entries if NONE_VALUE_RE.search(v))
 
     print("真值物品总数           : %d" % len(truth_prefabs))
     print("隐藏 / 可见            : %d / %d  (期望 %d / %d)"
@@ -166,7 +326,10 @@ def main():
     if dups:
         problems.append("ItemTagMap 重复键 %d 项：%s" % (len(dups), ", ".join(dups)))
     if none_tags:
-        problems.append("ItemTagMap 出现 ItemCategory.None %d 项：%s" % (len(none_tags), ", ".join(none_tags)))
+        problems.append("ItemTagMap 出现无分类值（None/(ItemCategory)0/default/0）%d 项：%s"
+                        % (len(none_tags), ", ".join(none_tags)))
+
+    report_rule_coverage(truth_prefabs, exact, prefixes, substrings, len(hidden))
 
     if problems:
         print("")
