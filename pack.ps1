@@ -31,7 +31,7 @@
       * 四处版本号完全一致，且 csproj 里 <Version> 只出现一次
       * manifest.json / icon.png 满足 Thunderstore 硬约束（icon 恰好 256×256 PNG、
         description ≤250 字符、name 仅 [A-Za-z0-9_]）
-      * ItemCatalog.cs 不变量（verify_catalog.py：隐藏 62 / 可见 151、ItemTagMap 精确对应）
+      * ItemCatalog.cs 不变量（verify_catalog.py：隐藏 61 / 可见 152、ItemTagMap 精确对应）
       * 单元测试全部通过（tests\ItemSpawnerPremium.Tests，零 Unity 依赖）
       * 装配后 dist 的文件集合恰好等于预期 7 项（多一个就失败）
 

@@ -102,6 +102,12 @@ namespace ItemSpawnerEnhancement
             { "CloudFungus", ItemCategory.Tools },
             { "Clusterberry Black", ItemCategory.Food },
             { "Clusterberry Red", ItemCategory.Food },
+            // prefab 名带 _UNUSED 后缀，但它是货真价实的第四种葚莓（itemName=Green Clusterberry，
+            // 中文"青葚莓"，tag=Berry，组件与上面三个兄弟逐项同构：Action_RestoreHunger +
+            // Action_Consume + Action_ModifyStatus）。它在 ItemDatabase.Objects 里，游戏里也真的会刷。
+            // 2.3.1 之前它被 HiddenSubstrings 的 "_UNUSED" 误伤，玩家在游戏里见过的青葚莓无法生成。
+            // 见 HiddenSubstrings 的注释：那条规则已删除。
+            { "Clusterberry_UNUSED", ItemCategory.Food },
             { "Clusterberry Yellow", ItemCategory.Food },
             { "Compass", ItemCategory.Equipment },
             { "Cure-All", ItemCategory.Consumables | ItemCategory.Mystical },   // 3 次
@@ -344,15 +350,26 @@ namespace ItemSpawnerEnhancement
 
         /// <summary>
         /// 需要隐藏的子串。
+        ///
+        /// "_Prop" / "_Hidden" 各有独占命中（前者 4 项、后者 1 项），且这些物品都有同名的可见代表
+        /// （BingBong / Binoculars / Bugle / Lollipop / MedicinalRoot），隐藏的是重复品 ——
+        /// 玩家仍能拿到同名的那个，网格里也不会出现两条一模一样的条目。
+        ///
         /// "_TEMP" 在当前 213 项真值里 0 命中，是**有意保留的前瞻性规则**（游戏历史上用过该后缀）；
         /// verify_catalog.py 会把这类"当前无贡献"的规则列为 INFO 提示而不失败。
-        /// 其余三条各有独占命中（_Prop 4 项、_UNUSED 1 项、_Hidden 1 项），删任一条都会改变切分数。
+        ///
+        /// **"_UNUSED" 已在 2.3.1 删除。** 名字带 UNUSED 不等于物品没用：它在运行时数据库里
+        /// 只命中一个物品，而那个物品（Clusterberry_UNUSED，itemName=Green Clusterberry，
+        /// 中文"青葚莓"）是真实的第四种葚莓，tag=Berry、带完整的食用组件、游戏里真的会刷。
+        /// 玩家反馈"游戏里的青葚莓生成不出来"就是这个误伤造成的。
+        /// 真正没用处的 prefab（如 Berrynana UNUSED）本来就不在 ItemDatabase.Objects 里，
+        /// 而本模组的目录只遍历那个列表，所以它们根本走不到隐藏规则这一步 ——
+        /// 这条规则唯一的效果就是误伤，删掉它才是对的。
         /// </summary>
         public static readonly string[] HiddenSubstrings = new string[]
         {
             "_Prop",
             "_TEMP",
-            "_UNUSED",
             "_Hidden",
         };
 

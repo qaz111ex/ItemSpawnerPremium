@@ -4,7 +4,7 @@
 
 对照 item_truth.json（游戏资源真值，213 个物品 prefab）校验三条不变量：
 
-  1. 隐藏 / 可见的切分符合预期（默认 62 / 151）。切分规则复刻
+  1. 隐藏 / 可见的切分符合预期（默认 61 / 152）。切分规则复刻
      ItemCatalogMethods.cs 的 IsHidden：HiddenExact 精确匹配、HiddenPrefixes 前缀、
      HiddenSubstrings 子串，全部大小写不敏感。
   2. ItemTagMap 的键集合与「可见集合」精确一一对应：
@@ -15,6 +15,10 @@
   3. ItemTagMap 无重复键、无「无分类」值（ItemCategory.None / (ItemCategory)0 /
      default(ItemCategory) / 裸 0 —— 它们在 C# 里全是同一个值，只写一种等于给
      绕过门禁留了后门）。
+  4. 被**子串**隐藏规则命中的物品，必须有同 itemName 的可见物品可替代。
+     子串规则按名字猜"没用"，名字会骗人：Clusterberry_UNUSED 的 itemName 是
+     Green Clusterberry（中文"青葚莓"），是真实的莓，游戏里真的会刷。
+     HiddenExact / HiddenPrefixes 是显式决定，不受此限。
 
 另外输出一段 INFO 级的「隐藏规则贡献度」分析（不参与成败判定，见 report_rule_coverage）。
 
@@ -24,7 +28,7 @@
 
 用法：
     python verify_catalog.py [--catalog ItemCatalog.cs] [--truth <item_truth.json>]
-                             [--expect-hidden 62] [--expect-visible 151]
+                             [--expect-hidden 61] [--expect-visible 152]
 真值文件路径优先级：--truth > 环境变量 ITEMSPAWNER_TRUTH_JSON > 脚本内默认值。
 （真值文件不在 git 仓库内，换机器时用环境变量比改脚本更不容易污染 diff。）
 退出码：0 = 全部通过；1 = 存在违规；2 = 输入文件缺失/解析失败。
@@ -191,6 +195,59 @@ def count_hidden(prefabs, exact_lower, prefixes_lower, substrings_lower):
                if is_hidden(p, exact_lower, prefixes_lower, substrings_lower))
 
 
+def hidden_by_substring_only(prefab, exact_lower, prefixes_lower, substrings_lower):
+    """是否「只因为子串规则而被隐藏」（未被显式 HiddenExact、也未被前缀规则命中）。
+
+    为什么要单独区分这一类：HiddenExact 与 HiddenPrefixes 是**显式决定**（逐个点名，或按
+    C_* / GuidebookPage* 这种结构性前缀），而 HiddenSubstrings 是**按名字猜**"这物品没用"。
+    名字会骗人，猜就会猜错。
+    """
+    if not prefab:
+        return False
+    low = prefab.lower()
+    if low in exact_lower:
+        return False
+    for p in prefixes_lower:
+        if low.startswith(p):
+            return False
+    return any(s in low for s in substrings_lower)
+
+
+def find_substring_misfires(truth, map_keys, exact_lower, prefixes_lower, substrings_lower):
+    """找出「被子串规则误伤」的物品：被隐藏，且没有任何同名可见物品可替代。
+
+    真实案例（2.3.1 修的）：`Clusterberry_UNUSED` 的 itemName 是 `Green Clusterberry`
+    （中文"青葚莓"），tag=Berry、带完整食用组件、在 ItemDatabase.Objects 里、游戏里真的会刷，
+    只因为 prefab 名带 "_UNUSED" 就被隐藏 —— 玩家在游戏里见过的青葚莓生成不出来。
+
+    判据用 ItemTagMap 中**真正可见**的键作为「可替代品」集合：如果同 itemName 的另一个
+    prefab 在表里且没被隐藏，那玩家仍然能拿到这个物品（隐藏的只是重复品，网格里也不会
+    出现两条一样的条目），这种隐藏是合理的。反之则这个物品从目录里彻底消失。
+
+    注意必须排除「表里但已被隐藏规则挡掉」的键（即 extra 违规项）：那种键自己都进不了
+    目录，不能拿来当别人的替代品 —— 否则这条检查会自我抵消（把 _UNUSED 加回去时，
+    表里那条 Clusterberry_UNUSED 会给它自己当替代品，检查就永远不报）。
+    """
+    name_of = {}
+    for it in truth:
+        p = it.get("prefab")
+        if p:
+            name_of[p] = it.get("itemName", "")
+    spawnable_names = set()
+    for k in map_keys:
+        if is_hidden(k, exact_lower, prefixes_lower, substrings_lower):
+            continue
+        spawnable_names.add(name_of.get(k, ""))
+
+    misfires = []
+    for p, nm in name_of.items():
+        if not hidden_by_substring_only(p, exact_lower, prefixes_lower, substrings_lower):
+            continue
+        if nm not in spawnable_names:
+            misfires.append((p, nm))
+    return sorted(misfires)
+
+
 def report_rule_coverage(prefabs, exact, prefixes, substrings, baseline_hidden):
     """逐条把隐藏规则拿掉，看隐藏数是否变化，以此判断这条规则有没有独占贡献。
 
@@ -249,8 +306,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--catalog", default=os.path.join(here, "ItemCatalog.cs"))
     ap.add_argument("--truth", default=(env_truth if env_truth else DEFAULT_TRUTH))
-    ap.add_argument("--expect-hidden", type=int, default=62)
-    ap.add_argument("--expect-visible", type=int, default=151)
+    ap.add_argument("--expect-hidden", type=int, default=61)
+    ap.add_argument("--expect-visible", type=int, default=152)
     args = ap.parse_args()
 
     if not os.path.isfile(args.catalog):
@@ -303,6 +360,7 @@ def main():
     extra = sorted(map_lower[k] for k in map_lower if k in truth_lower and k not in visible_lower)
     dead = sorted(map_lower[k] for k in map_lower if k not in truth_lower)
     none_tags = sorted(k for k, v in entries if NONE_VALUE_RE.search(v))
+    misfires = find_substring_misfires(truth, map_keys, exact_lower, prefixes_lower, substrings_lower)
 
     print("真值物品总数           : %d" % len(truth_prefabs))
     print("隐藏 / 可见            : %d / %d  (期望 %d / %d)"
@@ -328,6 +386,10 @@ def main():
     if none_tags:
         problems.append("ItemTagMap 出现无分类值（None/(ItemCategory)0/default/0）%d 项：%s"
                         % (len(none_tags), ", ".join(none_tags)))
+    if misfires:
+        problems.append(
+            "被子串规则误伤（被隐藏且无同名可见物品可替代，玩家彻底拿不到）%d 项：%s"
+            % (len(misfires), ", ".join("%s(itemName=%s)" % (p, nm) for p, nm in misfires)))
 
     report_rule_coverage(truth_prefabs, exact, prefixes, substrings, len(hidden))
 

@@ -6,7 +6,7 @@ A standalone item spawner for PEAK. Press **F5** to open the browser and spawn a
 
 > A continuation of the original `quackandcheese-ItemSpawner`, rebuilt as a single-DLL standalone mod.
 
-The current release was developed and tested against PEAK `2.3.a` (Steam build 24961053, 2026-08-28). Later game updates may add or rename items.
+The current release is built against PEAK `2.4.b` (Steam build 25090101, 2026-09-03). The things it depends on were re-verified against that build: the item database is unchanged (194 registered items) and so is the UI font fallback chain. Later game updates may still add or rename items.
 
 ## Features
 

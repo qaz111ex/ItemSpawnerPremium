@@ -1413,6 +1413,15 @@ namespace ItemSpawnerEnhancement
 
         private static void OnMajorSelected(MajorCategory major)
         {
+            // 搜索框有内容时，分类切换完全不响应：此时搜索范围恒为"全部"
+            // （ItemListView.Score 在 query 非空时忽略 _major），让高亮或数据任何一边变化
+            // 都会产生"高亮说工具、列表显示全部"的矛盾。所以这里连 _currentMajor 与按钮高亮
+            // 都不动 —— 玩家点分类按钮时画面纹丝不动，正是"不响应"该有的样子。
+            // 清空搜索后，之前选中的分类立即恢复生效。
+            if (_view != null && _view.HasQuery)
+            {
+                return;
+            }
             // 与 OnFavoriteToggled 同理：UI 回调自己兜住异常并回滚视觉状态，
             // 否则失败时会停在「按钮已高亮、列表没变」的半更新态，且日志不带本模组前缀。
             MajorCategory previousMajor = _currentMajor;

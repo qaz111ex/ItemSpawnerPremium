@@ -255,6 +255,18 @@ namespace ItemSpawnerEnhancement
         /// <summary>当前收藏筛选状态（唯一数据源，供 UiEnhancer 读取以刷新按钮颜色）。</summary>
         public bool FavoritesOnly { get { return _favoritesOnly; } }
 
+        /// <summary>
+        /// 搜索框是否有有效内容（trim 后非空）。
+        ///
+        /// 用途：搜索有内容时分类筛选被忽略（见 <see cref="Score"/>），分类按钮的点击也随之不响应
+        /// （UiEnhancer.OnMajorSelected 据此判断）。UiEnhancer 需要读这个状态来做到"点击完全无反应"，
+        /// 否则会出现按钮高亮已经跳到新分类、列表却仍按"全部"显示的自相矛盾画面。
+        /// </summary>
+        public bool HasQuery
+        {
+            get { return !string.IsNullOrEmpty(_query) && _query.Trim().Length > 0; }
+        }
+
         /// <summary>切换收藏筛选：仅显示已收藏物品（与分类/搜索叠加）。</summary>
         public void SetFavoritesOnly(bool value)
         {
@@ -859,7 +871,11 @@ namespace ItemSpawnerEnhancement
         private int Score(Entry entry, string query, string queryNoSpace, bool chinese)
         {
             // query 已 trim + ToLowerInvariant；queryNoSpace 是去掉所有非字母数字后的 query
-            if (!ItemCatalog.IsInMajor(entry.tags, _major)) { return 0; }
+            //
+            // 搜索框有内容时忽略分类筛选：搜索范围恒为"全部"。分类按钮此时的点击也不响应
+            // （见 UiEnhancer.OnMajorSelected），所以不会出现"高亮说工具、列表显示全部"的矛盾 ——
+            // 高亮停在用户上次选的分类，清空搜索后立即回到那个分类。
+            if (string.IsNullOrEmpty(query) && !ItemCatalog.IsInMajor(entry.tags, _major)) { return 0; }
             if (_favoritesOnly && !Plugin.Favorites.IsFavorite(entry.prefabName)) { return 0; }
 
             return SearchRanking.Score(

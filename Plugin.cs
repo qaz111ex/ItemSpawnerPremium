@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace ItemSpawnerEnhancement
 {
-    [BepInPlugin("com.itemspawnerpremium.ItemSpawnerPremium", "ItemSpawnerPremium", "2.3.0")]
+    [BepInPlugin("com.itemspawnerpremium.ItemSpawnerPremium", "ItemSpawnerPremium", "2.3.1")]
     public class Plugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log { get; private set; }

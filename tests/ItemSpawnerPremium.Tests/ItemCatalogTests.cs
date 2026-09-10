@@ -68,7 +68,7 @@ namespace ItemSpawnerPremium.Tests
         public void IsHidden_Substrings()
         {
             // 这些名字在 2.2.0 时同时出现在 HiddenExact 与子串规则里（冗余）；2.3.0 删掉了
-            // HiddenExact 那一份，改由 "_Prop" / "_UNUSED" / "_Hidden" 三条子串规则独占命中。
+            // HiddenExact 那一份，改由 "_Prop" / "_Hidden" 两条子串规则独占命中。
             // 这里刻意只断言 IsHidden 的**行为**、不断言它由哪张表命中 ——
             // 关心的是"这个物品不出现在目录里"，命中路径是实现细节。
             Assert.That(ItemCatalog.IsHidden("Binoculars_Prop"), Is.True);
@@ -76,10 +76,28 @@ namespace ItemSpawnerPremium.Tests
             Assert.That(ItemCatalog.IsHidden("Bugle_Prop Variant"), Is.True);
             Assert.That(ItemCatalog.IsHidden("Lollipop_Prop"), Is.True);
             Assert.That(ItemCatalog.IsHidden("Something_TEMP"), Is.True);
-            Assert.That(ItemCatalog.IsHidden("Clusterberry_UNUSED"), Is.True);
             Assert.That(ItemCatalog.IsHidden("Mandrake_Hidden"), Is.True);
             // 子串匹配不限位置
             Assert.That(ItemCatalog.IsHidden("A_Prop_B"), Is.True);
+        }
+
+        [Test]
+        public void ClusterberryUnused_IsVisibleDespiteTheUnusedSuffix()
+        {
+            // 回归守卫：prefab 名带 "_UNUSED" 不代表物品没用。
+            // Clusterberry_UNUSED 是第四种葚莓（itemName=Green Clusterberry，中文"青葚莓"，
+            // tag=Berry，组件与 Clusterberry Black/Red/Yellow 同构），它在 ItemDatabase.Objects 里、
+            // 游戏里真的会刷。2.3.1 之前它被 "_UNUSED" 子串规则误伤，玩家见过的青葚莓生成不出来。
+            //
+            // 对应的通用不变量在 verify_catalog.py 的 find_substring_misfires：
+            // 「被子串规则隐藏的物品必须存在同 itemName 的可见物品」。这条测试是它在数据侧的钉子。
+            Assert.That(ItemCatalog.IsHidden("Clusterberry_UNUSED"), Is.False,
+                "青葚莓被隐藏了 —— \"_UNUSED\" 后缀是误导性命名，该物品在运行时数据库里且真实可用");
+            ItemCategory tags;
+            Assert.That(ItemCatalog.ItemTagMap.TryGetValue("Clusterberry_UNUSED", out tags), Is.True,
+                "青葚莓必须出现在分类表里（可见集与表键一一对应）");
+            Assert.That(tags, Is.EqualTo(ItemCategory.Food),
+                "青葚莓与 Clusterberry Black/Red/Yellow 同构，应同为食物");
         }
 
         [Test]
@@ -88,7 +106,7 @@ namespace ItemSpawnerPremium.Tests
             // 2.3.0 从 HiddenExact 删掉 6 条冗余项的理由，固化成不变量。
             //
             // 冗余不只是啰嗦：当 "Binoculars_Prop" 同时躺在 HiddenExact 里时，"_Prop" 这条子串
-            // 规则在当前数据下没有任何独占命中，于是整条删掉也不会改变 62/151 切分 ——
+            // 规则在当前数据下没有任何独占命中，于是整条删掉也不会改变 61/152 切分 ——
             // verify_catalog.py 和单元测试全部照过，规则实际失效而无人可知，直到游戏新增一个
             // Xxx_Prop 装饰物出现在目录里。
             //
@@ -169,8 +187,8 @@ namespace ItemSpawnerPremium.Tests
         [Test]
         public void ItemTagMapHasExpectedEntryCount()
         {
-            // 151 = 真值 213 个物品减去隐藏的 62 个。数量变化必须是有意识的改动。
-            Assert.That(ItemCatalog.ItemTagMap.Count, Is.EqualTo(151),
+            // 152 = 真值 213 个物品减去隐藏的 61 个。数量变化必须是有意识的改动。
+            Assert.That(ItemCatalog.ItemTagMap.Count, Is.EqualTo(152),
                 "静态分类表条目数变化。若确实新增/删除了物品，请同步更新本断言与 verify_catalog.py");
         }
 
