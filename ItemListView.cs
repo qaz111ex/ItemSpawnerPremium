@@ -25,6 +25,13 @@ namespace ItemSpawnerEnhancement
             public ItemCategory primary;    // 主分类（用于排序）
             public GameObject go;           // 该条目对应的 GameObject（对象池缓存）
 
+            /// <summary>
+            /// 分组排序名：同族物品共用一个值，让"相关的物品"在网格里相邻。
+            /// 由 <see cref="ItemGrouping.ComputeGroupNames"/> 算出；未登记家族的物品等于 displayName。
+            /// 语言切换时 displayName 会变，所以它在 BuildCatalog 与 OnLanguageChanged 各重算一次。
+            /// </summary>
+            public string groupName;
+
             // ---- 搜索用小写副本（预计算）----
             // Score 是按键热路径：每次按键对全部条目各调一次，若在 Score 内做 ToLowerInvariant，
             // N=153 时每次按键要产生约 3N 个临时字符串。这三个字段在条目创建与语言切换时更新一次即可。
@@ -292,6 +299,7 @@ namespace ItemSpawnerEnhancement
                 entry.pinyin = ToPinyin(entry.displayName);
                 entry.pinyinInitials = ToPinyinInitials(entry.displayName);
             }
+            AssignGroupNames();
             _all.Sort(CompareEntries);
             RefreshFonts();
             UiEnhancer.RefreshButtonLabels(); // 分类按钮文字/字体随语言刷新
@@ -345,6 +353,7 @@ namespace ItemSpawnerEnhancement
                     Plugin.Log.LogWarning("ItemSpawnerPremium: 跳过异常物品 " + (item != null ? item.gameObject.name : "<null>") + ": " + ex.Message);
                 }
             }
+            AssignGroupNames();
             _all.Sort(CompareEntries);
             // 收藏脏数据检查只能在"目录代表全集"时进行：HideUnused=true 时 _all 已剔除隐藏物品，
             // 若据此判断会把隐藏物品的收藏当成脏数据。因此传入未经显示过滤的完整 prefab 集合，
@@ -544,11 +553,34 @@ namespace ItemSpawnerEnhancement
 
         private static int CompareEntries(Entry a, Entry b)
         {
-            // 三级全序比较（主分类 → 显示名 → prefab 名）委托给 SearchRanking.CompareCatalog：
+            // 四级全序比较（主分类 → 分组名 → 显示名 → prefab 名）委托给 SearchRanking.CompareCatalog：
             // 纯逻辑无 Unity 依赖，由 tests\ 下的单元测试验证全序性质（反对称、传递、同名稳定）。
+            // 分组名使同族物品相邻，见 ItemGrouping。
             return SearchRanking.CompareCatalog(
-                a.primary, a.displayName, a.prefabName,
-                b.primary, b.displayName, b.prefabName);
+                a.primary, a.groupName, a.displayName, a.prefabName,
+                b.primary, b.groupName, b.displayName, b.prefabName);
+        }
+
+        /// <summary>
+        /// 重算全部条目的分组排序名。必须在 _all.Sort(CompareEntries) 之前调用，
+        /// 且显示名发生变化之后调用（构建目录时、语言切换时各一次）。
+        /// </summary>
+        private void AssignGroupNames()
+        {
+            int n = _all.Count;
+            string[] familyKeys = new string[n];
+            string[] displayNames = new string[n];
+            for (int i = 0; i < n; i++)
+            {
+                Entry e = _all[i];
+                familyKeys[i] = ItemCatalog.GetFamily(e.prefabName);
+                displayNames[i] = e.displayName;
+            }
+            string[] groupNames = ItemGrouping.ComputeGroupNames(familyKeys, displayNames);
+            for (int i = 0; i < n; i++)
+            {
+                _all[i].groupName = groupNames[i];
+            }
         }
 
         /// <summary>

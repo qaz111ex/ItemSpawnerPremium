@@ -2,7 +2,7 @@
   "namespace": "itemspawnerpremium",
   "name": "ItemSpawnerPremium",
   "description": "Standalone item spawner for PEAK (F5). Localized item names, pinyin search (Chinese UI), multi-tag categories, right-click favorites, configurable hide-unused toggle, warm kraft-paper UI. Only BepInEx required.",
-  "version_number": "2.3.1",
+  "version_number": "2.4.0",
   "dependencies": [
     "BepInEx-BepInExPack_PEAK-5.4.75301"
   ],

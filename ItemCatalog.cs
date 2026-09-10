@@ -373,5 +373,136 @@ namespace ItemSpawnerEnhancement
             "_Hidden",
         };
 
+        /// <summary>
+        /// 物品家族：prefab 名 -> 家族 key（同 key 的物品在网格里相邻显示）。
+        ///
+        /// 为什么需要它：目录默认按**显示名**排序，而中文名常常是「共享后缀、前缀不同」
+        /// —— 黑葚莓 / 红葚莓 / 黄葚莓 / 青葚莓 按码点排出来是 红 · 青 · 黄 · 黑，中间会插进
+        /// 几十个别的物品；四种脆莓、几种绳索同理。玩家想找"那种莓"得满屏翻。
+        ///
+        /// key 本身不显示给玩家，只是分组的标识（用英文小写加连字符，与显示语言无关）。
+        /// 排序时整族取族内**最小的显示名**作为该族的排序名 —— 这样整族落在"它最靠前那个成员"
+        /// 本该在的位置，族内再按显示名排。于是既能一眼看到一族东西挤在一起，
+        /// 位置又仍然符合"按名字找"的直觉。
+        ///
+        /// 只登记**成套出现**的物品（同一种莓的各颜色变种、同一系列的道具）。不成套的不登记，
+        /// 它们按自己的显示名参与全局排序 —— 不登记就是"维持原样"，不是"排在最后"。
+        ///
+        /// 与 ExtraCustomNames 的区别：那是**译名**表（游戏本地化表缺 key 时兜底），
+        /// 这是**排序分组**表，两回事，不要合并。
+        /// </summary>
+        public static readonly Dictionary<string, string> ItemFamily = new Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase)
+        {
+            // amulet（童军护符：五项都叫"童军的××"）
+            { "Amulet_Healing", "amulet" },
+            { "Amulet_Clone", "amulet" },
+            { "Amulet_SuperJump", "amulet" },
+            { "Amulet_InfiniteStamina", "amulet" },
+            { "ScoutsHonor", "amulet" },
+            // balloon（气球）
+            { "Balloon", "balloon" },
+            { "BalloonBunch", "balloon" },
+            // berrynana（莓蕉，四种颜色）
+            { "Berrynana Blue", "berrynana" },
+            { "Berrynana Brown", "berrynana" },
+            { "Berrynana Pink", "berrynana" },
+            { "Berrynana Yellow", "berrynana" },
+            // berrynana-peel（莓蕉皮，四种颜色）
+            { "Berrynana Peel Blue Variant", "berrynana-peel" },
+            { "Berrynana Peel Brown Variant", "berrynana-peel" },
+            { "Berrynana Peel Pink Variant", "berrynana-peel" },
+            { "Berrynana Peel Yellow", "berrynana-peel" },
+            // bugle（喇叭：友谊喇叭 / 童军领队的喇叭）
+            { "Bugle_Magic", "bugle" },
+            { "Bugle_Scoutmaster Variant", "bugle" },
+            // clusterberry（葚莓，四种颜色）
+            { "Clusterberry Black", "clusterberry" },
+            { "Clusterberry Red", "clusterberry" },
+            { "Clusterberry Yellow", "clusterberry" },
+            { "Clusterberry_UNUSED", "clusterberry" },
+            // coconut（椰子：整颗 / 半边）
+            { "Item_Coconut", "coconut" },
+            { "Item_Coconut_half", "coconut" },
+            // compass（罗盘：普通 / 海盗）
+            { "Compass", "compass" },
+            { "Pirate Compass", "compass" },
+            // crispberry（脆莓，四种颜色；Weird 的译名在 ExtraCustomNames 里）
+            { "Apple Berry Green", "crispberry" },
+            { "Apple Berry Red", "crispberry" },
+            { "Apple Berry Yellow", "crispberry" },
+            { "Apple Berry Weird", "crispberry" },
+            // drink（饮料：能量 / 运动）
+            { "Energy Drink", "drink" },
+            { "Sports Drink", "drink" },
+            // egg（蛋类：煎蛋两种 + 大蛋 + 小蛋 + 火鸡蛋）
+            { "Egg", "egg" },
+            { "EggRaven", "egg" },
+            { "NestEgg", "egg" },
+            { "NestEgg_Raven", "egg" },
+            { "EggTurkey", "egg" },
+            // fungus（工具类菌菇：云雾 / 弹力 / 踏板 / 曲迁 / 灵药）
+            { "CloudFungus", "fungus" },
+            { "BounceShroom", "fungus" },
+            { "ShelfShroom", "fungus" },
+            { "WarpFungus", "fungus" },
+            { "HealingPuffShroom", "fungus" },
+            // kingberry（荔莓：青 / 黄 / 紫，外加 itemName 是 Pink Kingberry 的 Skyberry）
+            { "Kingberry Green", "kingberry" },
+            { "Kingberry Yellow", "kingberry" },
+            { "Kingberry Purple", "kingberry" },
+            { "Skyberry", "kingberry" },
+            // light（照明类：提灯 / 仙子提灯 / 烛台 / 火炬）
+            { "Lantern", "light" },
+            { "Lantern_Faerie", "light" },
+            { "Candle", "light" },
+            { "Torch", "light" },
+            // lollipop（棒棒糖：大棒棒糖 / 恶趣棒棒糖）
+            { "Lollipop", "lollipop" },
+            { "Lollipop_Evil", "lollipop" },
+            // mushroom（食用菌：喇叭 / 银针 / 馒头各两种 + 梨鲍 + 诡异）
+            { "Mushroom Lace", "mushroom" },
+            { "Mushroom Lace Poison", "mushroom" },
+            { "Mushroom Cluster", "mushroom" },
+            { "Mushroom Cluster Poison", "mushroom" },
+            { "Mushroom Normie", "mushroom" },
+            { "Mushroom Normie Poison", "mushroom" },
+            { "Mushroom Chubby", "mushroom" },
+            { "Mushroom Glow", "mushroom" },
+            // pack（背包类：背包 / 滑稽背包 / 喷气背包 / 火箭背包）
+            { "Backpack", "pack" },
+            { "Fannypack", "pack" },
+            { "Jetpack", "pack" },
+            { "Rocketpack", "pack" },
+            // prickleberry（刺莓：红 / 金）
+            { "Prickleberry_Red", "prickleberry" },
+            { "Prickleberry_Gold", "prickleberry" },
+            // rope（绳索类：绳索 / 反重绳索 / 绳索炮 / 反重绳索炮）
+            { "RopeSpool", "rope" },
+            { "Anti-Rope Spool", "rope" },
+            { "RopeShooter", "rope" },
+            { "RopeShooterAnti", "rope" },
+            // shroomberry（菇莓，五种颜色）
+            { "Shroomberry_Green", "shroomberry" },
+            { "Shroomberry_Red", "shroomberry" },
+            { "Shroomberry_Blue", "shroomberry" },
+            { "Shroomberry_Purple", "shroomberry" },
+            { "Shroomberry_Yellow", "shroomberry" },
+            // winterberry（雪莓：橙 / 黄，外加同显示名的 Yuzu Berry）
+            { "Winterberry Orange", "winterberry" },
+            { "Winterberry Yellow", "winterberry" },
+            { "Yuzu Berry", "winterberry" },
+        };
+
+        /// <summary>取物品的家族 key；未登记家族的物品返回 null（＝按自身显示名参与全局排序）。</summary>
+        public static string GetFamily(string prefabName)
+        {
+            if (string.IsNullOrEmpty(prefabName))
+            {
+                return null;
+            }
+            string family;
+            return ItemFamily.TryGetValue(prefabName, out family) ? family : null;
+        }
+
     }
 }

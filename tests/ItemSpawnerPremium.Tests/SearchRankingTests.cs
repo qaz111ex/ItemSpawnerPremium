@@ -278,8 +278,8 @@ namespace ItemSpawnerPremium.Tests
             InCulture("tr-TR", delegate
             {
                 int r = SearchRanking.CompareCatalog(
-                    ItemCategory.Tools, "rescue claw", "RescueHook",
-                    ItemCategory.Tools, "rescue claw", SoftHyphen + "RescueHook");
+                    ItemCategory.Tools, "rescue claw", "rescue claw", "RescueHook",
+                    ItemCategory.Tools, "rescue claw", "rescue claw", SoftHyphen + "RescueHook");
                 Assert.That(r, Is.Not.EqualTo(0),
                     "prefab tiebreaker 未用 Ordinal：仅差一个可忽略字符的两项被判为相等，比较器不再是全序");
             });
@@ -289,7 +289,9 @@ namespace ItemSpawnerPremium.Tests
 
         private static int Cmp(ItemCategory ap, string ad, string apf, ItemCategory bp, string bd, string bpf)
         {
-            return SearchRanking.CompareCatalog(ap, ad, apf, bp, bd, bpf);
+            // 分组名传显示名：模拟"未登记家族"的条目，等价于加分组之前的行为。
+            // 分组本身的语义由 ItemGrouping 测试与 CompareCatalog_GroupNameClustersFamilyMembers 覆盖。
+            return SearchRanking.CompareCatalog(ap, ad, ad, apf, bp, bd, bd, bpf);
         }
 
         [Test]
@@ -373,8 +375,8 @@ namespace ItemSpawnerPremium.Tests
             Comparison<string[]> cmp = delegate (string[] a, string[] b)
             {
                 return SearchRanking.CompareCatalog(
-                    ItemCategory.Tools, a[0], a[1],
-                    ItemCategory.Tools, b[0], b[1]);
+                    ItemCategory.Tools, a[0], a[0], a[1],
+                    ItemCategory.Tools, b[0], b[0], b[1]);
             };
 
             List<string[]> forward = new List<string[]>(items);
@@ -390,6 +392,30 @@ namespace ItemSpawnerPremium.Tests
                 Assert.That(reversed[i][1], Is.EqualTo(forward[i][1]),
                     "第 " + i + " 位排序结果依赖初始顺序，比较器不是全序");
             }
+        }
+
+        [Test]
+        public void CompareCatalog_GroupNameClustersFamilyMembers()
+        {
+            // 分组名（第二级）的作用：同族成员共用一个排序名，于是它们挤在一起，
+            // 即使族内某个成员的显示名按字典序本该排在别处。
+            // 这里构造：A 与 C 同族（分组名都是 "b-berry"），B 的显示名介于两者之间。
+            // 没有分组时顺序是 A < B < C（按显示名）；有分组后 A 和 C 必须相邻。
+            int ab = Cmp2(ItemCategory.Food, "b-berry", "aaa", "A",
+                          ItemCategory.Food, "bbb", "bbb", "B");
+            Assert.That(ab, Is.LessThan(0), "整族落在族内最小显示名的位置，应排在 B 之前");
+            int cb = Cmp2(ItemCategory.Food, "b-berry", "ccc", "C",
+                          ItemCategory.Food, "bbb", "bbb", "B");
+            Assert.That(cb, Is.LessThan(0), "同族成员即使显示名比 B 大，也应跟着族排到 B 之前");
+            int ac = Cmp2(ItemCategory.Food, "b-berry", "aaa", "A",
+                          ItemCategory.Food, "b-berry", "ccc", "C");
+            Assert.That(ac, Is.LessThan(0), "族内仍按显示名排");
+        }
+
+        private static int Cmp2(ItemCategory ap, string ag, string ad, string apf,
+                                ItemCategory bp, string bg, string bd, string bpf)
+        {
+            return SearchRanking.CompareCatalog(ap, ag, ad, apf, bp, bg, bd, bpf);
         }
 
         [Test]

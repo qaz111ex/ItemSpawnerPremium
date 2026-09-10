@@ -13,6 +13,7 @@ The current release is built against PEAK `2.4.b` (Steam build 25090101, 2026-09
 - **Localized item names** — the UI is translated into all 15 game languages. Item names come from the game's own localization table; if that table has no column for your language the English name is shown, if it has no entry for the item at all the internal item name (or the prefab name) is shown, and a small number of items that the game never localized use a name bundled with this mod.
 - **Smart search + Pinyin** (full spelling and initials, e.g. `regouchang` / `rgc` finds 热狗肠). Pinyin matching is enabled when the game language is Simplified or Traditional Chinese.
 - **Multi-tag categories**: All / Tools / Food / Mystical / Equipment / Consumables / Misc.
+- **Related items stay together**: colour variants and product lines are grouped in the grid (all four clusterberries in a row, all crispberries, all rope launchers, all packs, and so on) instead of being scattered by name.
 - **Favorites**: right-click to toggle, heart marker, config persistence, favorites filter.
 - **Hide-unused toggle** (default on): hides chess pieces, torn guidebook pages, `_Prop`/`_TEMP`/`_UNUSED`/`_Hidden` prefabs, and a short list of template/placeholder prefabs. Favorites are preserved when toggling.
 - **Two UI styles**: HandDrawn (warm kraft paper, default) / Transparent.

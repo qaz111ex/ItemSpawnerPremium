@@ -96,21 +96,31 @@ namespace ItemSpawnerEnhancement
         }
 
         /// <summary>
-        /// 目录排序比较：主分类升序 → 显示名（忽略大小写）→ prefab 名（Ordinal）。
+        /// 目录排序比较：主分类升序 → 分组名 → 显示名（忽略大小写）→ prefab 名（Ordinal）。
+        ///
+        /// 分组名（groupName）由 <see cref="ItemGrouping.ComputeGroupNames"/> 算好：
+        /// 同族成员共用一个值（族内最小的显示名），未登记家族的条目等于自身显示名。
+        /// 于是同族物品挤在一起，整族落在它最靠前那个成员本该在的位置；
+        /// 未分组的物品行为与加分组前完全一致（第二级等于第三级，不产生额外区分）。
         ///
         /// prefab 名作为最终 tiebreaker 使比较器成为**全序**。这不是可选优化：可见物品里存在
-        /// 11 组同显示名的条目（救援抓钩×2、煎蛋×2、黄雪莓×2、莓蕉皮×4、传送罗盘×3、热狗肠×2、
-        /// 阳伞×2、童军饼干×2、三组毒/非毒同名蘑菇），若比较器只到显示名一级，List.Sort（不稳定）
-        /// 会让这些同名条目相对顺序在每次排序后抖动，表现为切换语言时网格位置互换。
+        /// 多组同显示名的条目（救援抓钩×2、煎蛋×2、黄雪莓×2、莓蕉皮×4、传送罗盘×3、热狗肠×2、
+        /// 阳伞×2、童军饼干×2、三组毒/非毒同名蘑菇），若比较器只到显示名一级，
+        /// List.Sort（不稳定）会让这些同名条目相对顺序在每次排序后抖动，表现为切换语言时网格位置互换。
         /// </summary>
         public static int CompareCatalog(
-            ItemCategory aPrimary, string aDisplayName, string aPrefabName,
-            ItemCategory bPrimary, string bDisplayName, string bPrefabName)
+            ItemCategory aPrimary, string aGroupName, string aDisplayName, string aPrefabName,
+            ItemCategory bPrimary, string bGroupName, string bDisplayName, string bPrefabName)
         {
             int byPrimary = aPrimary.CompareTo(bPrimary);
             if (byPrimary != 0)
             {
                 return byPrimary;
+            }
+            int byGroup = string.Compare(aGroupName, bGroupName, System.StringComparison.OrdinalIgnoreCase);
+            if (byGroup != 0)
+            {
+                return byGroup;
             }
             int byDisplay = string.Compare(aDisplayName, bDisplayName, System.StringComparison.OrdinalIgnoreCase);
             if (byDisplay != 0)

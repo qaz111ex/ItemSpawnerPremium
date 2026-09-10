@@ -36,6 +36,7 @@
   <!-- 被测的纯逻辑源文件（无 Unity / BepInEx 依赖） -->
   <ItemGroup>
     <Compile Include="..\..\SearchText.cs" Link="Linked\SearchText.cs" />
+    <Compile Include="..\..\ItemGrouping.cs" Link="Linked\ItemGrouping.cs" />
     <Compile Include="..\..\SearchRanking.cs" Link="Linked\SearchRanking.cs" />
     <!--
       InputKeys 是 2.3.0 从 Plugin.IsTextInputKey 提纯出来的按键分类判定。

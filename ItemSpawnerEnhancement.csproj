@@ -8,7 +8,7 @@
     <!-- 与 BepInPlugin 版本保持一致，便于从程序集属性排查线上版本。
          改版本时必须同步四处：本处、Plugin.cs 的 [BepInPlugin]、package\manifest.json、CHANGELOG.md。
          pack.ps1 会强制校验四处一致，不一致直接拒绝打包。 -->
-    <Version>2.3.1</Version>
+    <Version>2.4.0</Version>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <!-- 必须按配置分目录：曾经统一输出到 bin\，Debug 与 Release 互相覆盖，
